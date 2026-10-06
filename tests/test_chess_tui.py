@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 
 import chess
 import chess.engine
+from rich.style import Style
 
 from chess_cli import find_stockfish
 from chess_input import parse_input
@@ -85,7 +86,11 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
     async def test_rapid_navigation_during_analysis_keeps_engine_usable(self):
         moves = [chess.Move.from_uci(move) for move in
                  ("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6")]
-        app = ChessAnalysisApp(chess.Board(), self.engine, 30, 5, moves=moves)
+        board = chess.Board()
+        for move in moves:
+            board.push(move)
+        app = ChessAnalysisApp(chess.Board(), self.engine, 30, 5,
+                               game=chess.pgn.Game.from_board(board))
         async with app.run_test(size=(80, 24)) as pilot:
             for _ in range(12):
                 await asyncio.wait_for(pilot.press("left", "right"), timeout=2)
@@ -97,14 +102,56 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             await wait_for_analysis(app, pilot)
             self.assertTrue(app.current.candidates)
 
+    async def test_evaluation_bar_uses_terminal_game_result(self):
+        white_mate = chess.Board("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1")
+        black_mate = chess.Board()
+        for move in ("f3", "e5", "g4", "Qh4#"):
+            black_mate.push_san(move)
+        stalemate = chess.Board("7k/5K2/6Q1/8/8/8/8/8 b - - 0 1")
+        cases = (
+            (white_mate, {"#f0f0e8"}),
+            (black_mate, {"#30343b"}),
+            (stalemate, {"#f0f0e8", "#30343b"}),
+        )
+
+        for board, expected_colors in cases:
+            with self.subTest(outcome=board.outcome()):
+                app = ChessAnalysisApp(board, self.engine, 0.05, 3)
+                async with app.run_test(size=(120, 42)) as pilot:
+                    await pilot.pause()
+                    bar = app.query_one("#evaluation-bar").render()
+                    colors = [Style.parse(span.style).bgcolor.name for span in bar.spans]
+                    self.assertTrue(colors)
+                    self.assertEqual(set(colors), expected_colors)
+                    if len(expected_colors) == 2:
+                        self.assertLessEqual(abs(colors.count("#f0f0e8") -
+                                                 colors.count("#30343b")), 1)
+
+    async def test_opening_label_tracks_navigation_and_imported_variations(self):
+        board, game, _, _ = parse_input(
+            "1. e4 c5 (1... e6) 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 *"
+        )
+        app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=game)
+        async with app.run_test() as pilot:
+            self.assertEqual(app.query_one("#opening").render().plain,
+                             "B90 · Sicilian Defense: Najdorf Variation")
+            app.action_game_position(1)
+            choices = app.move_choices(app.current)
+            app.action_follow_choice(choices.index(chess.Move.from_uci("e7e6")))
+            self.assertEqual(app.query_one("#opening").render().plain, "C00 · French Defense")
+            await pilot.press("escape", "enter")
+            self.assertEqual(app.query_one("#opening").render().plain, "B20 · Sicilian Defense")
+            app.action_game_position(0)
+            self.assertFalse(app.query_one("#opening").display)
+
     async def test_pgn_navigation_and_exploration(self):
         board, moves, white_name, black_name = parse_input(
             '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *\n'
         )
         final = board.copy()
-        for move in moves:
+        for move in moves.mainline_moves():
             final.push(move)
-        app = ChessAnalysisApp(board, self.engine, 0.05, 3, moves=moves,
+        app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=moves,
                                white_name=white_name, black_name=black_name)
         async with app.run_test(size=(120, 42)) as pilot:
             await wait_for_analysis(app, pilot)

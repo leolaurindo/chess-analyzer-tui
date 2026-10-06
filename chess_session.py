@@ -33,10 +33,12 @@ def save_session(app: ChessAnalysisApp, path: Path) -> None:
     for parent_index, parent in enumerate(nodes):
         for child in parent.children.values():
             nodes.append(child)
-            records.append([parent_index, child.move_from_parent.uci(), child.is_mainline])
+            records.append([parent_index, child.move_from_parent.uci(), child.is_mainline,
+                            child.imported, child.comment, child.starting_comment])
     indices = {id(node): index for index, node in enumerate(nodes)}
     data = {
-        "version": 1,
+        "version": 2,
+        "comment": app.root.comment,
         "fen": app.root.board.fen(),
         "has_pgn": app.has_pgn,
         "nodes": records,
@@ -63,23 +65,26 @@ def save_session(app: ChessAnalysisApp, path: Path) -> None:
 def load_session(path: Path) -> Session:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data["version"] != 1:
+        if data["version"] != 2:
             raise ValueError("unsupported session version")
         if any(type(data[key]) is not bool for key in ("has_pgn", "flipped")):
             raise ValueError("invalid session flags")
-        if any(not isinstance(data[key], str) for key in ("fen", "white", "black")):
+        if any(not isinstance(data[key], str) for key in ("fen", "white", "black", "comment")):
             raise ValueError("invalid session text")
         board = chess.Board(data["fen"])
         if not board.is_valid():
             raise ValueError("invalid starting position")
-        root = Node(board, is_mainline=data["has_pgn"])
+        root = Node(board, is_mainline=data["has_pgn"], imported=data["has_pgn"],
+                    comment=data["comment"])
         nodes = [root]
         if not isinstance(data["nodes"], list):
             raise ValueError("invalid game tree")
-        for parent_index, uci, mainline in data["nodes"]:
+        for parent_index, uci, mainline, imported, comment, starting_comment in data["nodes"]:
             if type(parent_index) is not int or not 0 <= parent_index < len(nodes):
                 raise ValueError("invalid parent position")
-            if not isinstance(uci, str) or type(mainline) is not bool:
+            if (not isinstance(uci, str) or type(mainline) is not bool
+                    or type(imported) is not bool
+                    or not isinstance(comment, str) or not isinstance(starting_comment, str)):
                 raise ValueError("invalid move record")
             parent = nodes[parent_index]
             move = chess.Move.from_uci(uci)
@@ -87,6 +92,9 @@ def load_session(path: Path) -> Session:
                 raise ValueError("invalid or duplicate move")
             child = parent.child(move)
             child.is_mainline = mainline
+            child.imported = imported
+            child.comment = comment
+            child.starting_comment = starting_comment
             if mainline:
                 if not parent.is_mainline or parent.mainline_next is not None:
                     raise ValueError("invalid original game")

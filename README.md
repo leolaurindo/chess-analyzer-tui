@@ -5,6 +5,8 @@ Interactive terminal chess analysis from FEN or PGN text, files, or your clipboa
 Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui).
 Full renderer credits and license information are below.
 
+![Chess Analyzer TUI demo](demos/showcase.gif)
+
 ## Install and run
 
 Requires Python 3.11+.
@@ -17,6 +19,9 @@ separate PyPI package):
 uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
 chess-analyzer # opens a new game
 chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
+chess-analyzer https://lichess.org/nrmBGiQF
+chess-analyzer https://lichess.org/study/r072zv4F/R33cxdop
+chess-analyzer https://www.chess.com/game/live/4912555148
 chess-analyzer --file game.pgn
 chess-analyzer --file position.fen
 chess-analyzer --clip
@@ -27,9 +32,14 @@ chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2
 The command works from any directory. If it isn't on PATH, use
 `uv tool update-shell` (or `pipx ensurepath`) and restart your shell.
 
-Pass quoted FEN or PGN text, use `--file` to read a UTF-8 file, or `--clip` to read
-the clipboard. Choose one input source; the format is detected from its contents.
-Without input, analysis starts from the initial position.
+Pass quoted FEN or PGN text, a Chess.com game URL, a Lichess game or study URL, or
+an HTTPS URL that serves plain-text PGN. The examples include a Lichess study of
+Mikhail Tal and a regular Lichess game by Magnus Carlsen, plus a public Chess.com
+game by GM LPSupi. Use `--file`
+to read a UTF-8 file or `--clip` to read the clipboard. Choose one input source;
+the format is detected automatically. URL loads
+are limited to public HTTPS hosts, 4 MiB, and a 10-second request timeout. Without
+input, analysis starts from the initial position.
 
 Options:
 
@@ -52,7 +62,8 @@ support.
 ## Continue an analysis
 
 Run `chess-analyzer --continue` (or `-c`) to restore the last game, explored
-branches, current position, player names, and board orientation. Engine analysis
+branches, imported PGN comments and side variations, current position, player names,
+and board orientation. Engine analysis
 is recalculated using the current command-line settings.
 
 The session saves automatically as you navigate or flip the board. Starting a
@@ -96,6 +107,15 @@ and multiple-line settings only when the engine supports them.
 
 PGNs open at the final position and use their `White`/`Black` headers for player labels
 when present. Use `--white` and `--black` to set or override names, including for FENs.
+PGN comments (including Lichess study annotations) appear at their own positions.
+Imported side variations are listed alongside engine moves; follow them with the
+same keys or mouse clicks. Comments stay attached to that game's move tree, not
+other games or engine-generated positions.
+
+Opening labels show the ECO code and opening/variation name for the latest known
+position on the current line. Transpositions are recognized; stepping back or
+exploring another line updates the label. For FEN-only input, only the supplied
+position (and subsequent moves) can be matched. Labels work offline.
 
 - **↑/↓** — choose an original move or engine alternative
 - **→/Enter** — follow the selected move; **←** — step back
@@ -109,6 +129,16 @@ Use at least 40×24 terminal cells. Larger boards use multiline pieces; smaller
 ones use chess glyphs. Narrow layouts stack the panels; scroll with the mouse
 wheel or Page Up/Down. Blue highlights the selected move, yellow the previous
 move, and red a checked king.
+
+## Opening data credits
+
+Opening names and variations come from Lichess’s
+[`chess-openings`](https://github.com/lichess-org/chess-openings) dataset, released
+under the [CC0 Public Domain Dedication](https://creativecommons.org/publicdomain/zero/1.0/).
+The bundled position index uses revision
+[`65bb03f`](https://github.com/lichess-org/chess-openings/tree/65bb03f76c7f077984db01a2f2d0534e4181ddfe)
+and can be regenerated with `uv run python scripts/build_openings.py`.
+No opening descriptions are included.
 
 ## Renderer credits
 

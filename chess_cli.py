@@ -12,6 +12,7 @@ from pathlib import Path
 
 import chess
 import chess.engine
+import chess.pgn
 
 from chess_input import load_input, player_name
 from chess_session import Session, load_session, save_session, session_path
@@ -57,7 +58,7 @@ def missing_engine_message() -> str:
     )
 
 
-async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.Move] | None,
+async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Game | None,
                   white_name: str, black_name: str, *, session: Session | None = None) -> None:
     transport, engine = await chess.engine.popen_uci(engine_path)
     try:
@@ -88,7 +89,7 @@ async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.
                 app.notify(f"Could not save analysis: {exc}", severity="warning")
 
         app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
-                               moves=moves, engine_name=engine_name,
+                               game=game, engine_name=engine_name,
                                white_name=white_name, black_name=black_name,
                                on_session_change=persist)
         if session is not None:
@@ -112,7 +113,7 @@ def main() -> None:
     parser.add_argument("-v", "--version", action="version",
                         version=f"%(prog)s {version('chess-analyzer-tui')}")
     source = parser.add_mutually_exclusive_group()
-    source.add_argument("input", nargs="?", help="FEN position or PGN text")
+    source.add_argument("input", nargs="?", help="FEN, PGN text, or HTTPS game/study/PGN URL")
     source.add_argument("--file", help="Read FEN or PGN from a UTF-8 file")
     source.add_argument("--clip", action="store_true",
                         help="Analyze FEN or PGN from the clipboard")
@@ -133,10 +134,10 @@ def main() -> None:
         parser.error("--lines, --threads and --hash must be positive")
     session = load_session(session_path()) if args.continue_session else None
     if session is not None:
-        board, moves = session.root.board, None
+        board, game = session.root.board, None
         pgn_white, pgn_black = session.white_name, session.black_name
     else:
-        board, moves, pgn_white, pgn_black = load_input(args.input, file=args.file, clipboard=args.clip)
+        board, game, pgn_white, pgn_black = load_input(args.input, file=args.file, clipboard=args.clip)
     white_name = player_name(args.white, pgn_white)
     black_name = player_name(args.black, pgn_black)
     if not board.is_valid():
@@ -145,7 +146,7 @@ def main() -> None:
     if not engine_path:
         raise SystemExit(missing_engine_message())
     try:
-        asyncio.run(run_app(args, board, engine_path, moves, white_name, black_name, session=session))
+        asyncio.run(run_app(args, board, engine_path, game, white_name, black_name, session=session))
     except (OSError, chess.engine.EngineError, asyncio.TimeoutError) as exc:
         raise SystemExit(f"Engine error: {exc}") from exc
 
