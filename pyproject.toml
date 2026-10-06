@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chess-analyzer"
+version = "0.1.0"
+description = "Interactive terminal chess analysis with Stockfish."
+readme = "README.md"
+license-files = ["licenses/chess-tui-MIT.txt"]
+requires-python = ">=3.11"
+dependencies = [
+    "chess>=1.11.2",
+    "textual>=8.2.8",
+]
+
+[project.scripts]
+chess-analyzer = "chess_tui:main"
+
+[tool.setuptools]
+py-modules = ["chess_tui", "piece_art"]
