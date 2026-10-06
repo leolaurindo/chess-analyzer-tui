@@ -29,7 +29,7 @@ from .piece_art import PIECE_ART
 
 def quality_badge(label: str) -> Text:
     return Text(f"[{label.upper()}]", style=Style(
-        color="#161b22", bgcolor="#ffffff", bold=True, reverse=False,
+        color="#0d1117", bgcolor="#e6edf3", bold=True, reverse=False,
     ))
 
 
@@ -281,7 +281,7 @@ class ChessAnalysisApp(App):
         quality_panel = self.query_one("#move-quality", Static)
         quality_panel.display = node.parent is not None
         san = node.parent.board.san(node.move_from_parent) if node.parent else ""
-        last_move = Text(f"Last move · {san} · ", style="bold")
+        last_move = Text(f"LAST MOVE · {san} ", style="bold")
         last_move.append(quality_badge(quality) if quality else "Unrated")
         quality_panel.update(last_move)
         return_link = self.query_one("#return-game", Static)
@@ -302,14 +302,10 @@ class ChessAnalysisApp(App):
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
                 row += f"  {format_score(candidate.score)}"
-            row = Text(row, style=Style(
+            lines.append(row + "\n", style=Style(
                 color="#e3b341" if original else "#58a6ff", reverse=index == node.selected,
                 meta={"@click": f"app.follow_choice({index})"},
             ))
-            quality = node.quality(move)
-            if quality:
-                row.append(" · ").append(quality_badge(quality))
-            lines.append(row).append("\n")
         lines.append("→ / Enter follows selection\n", style="dim")
         if board.is_game_over():
             lines.append(f"Game over: {board.result()}\n", style="dim")
@@ -357,14 +353,10 @@ class ChessAnalysisApp(App):
                 if index == 1 and not parent.board.turn:
                     prefix = f"{parent.board.fullmove_number}... "
                 san = parent.board.san(cursor.move_from_parent)
-                entry = Text("  " + prefix + san, style=Style(
+                history.append("  " + prefix + san, style=Style(
                     color="#e3b341", reverse=cursor is anchor,
                     meta={"@click": f"app.game_position({index})"},
                 ))
-                quality = parent.quality(cursor.move_from_parent)
-                if quality:
-                    entry.append(" ").append(quality_badge(quality))
-                history.append(entry)
             if not node.is_mainline:
                 history.append("\n\nExplored line\n", style="bold #58a6ff")
                 history.append(history_to_san(node))

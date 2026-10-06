@@ -171,10 +171,12 @@ and multiple-line settings only when the engine supports them.
 
 ## Move-quality labels
 
-Scored candidate moves, reviewed original-game moves, and the last played move
-show **Best**, **Excellent**, **Good**, **Inaccuracy**, **Mistake**, or **Blunder**.
-Labels use compact uppercase badges such as `[BEST]` and `[BLUNDER]`, with a
-white background and text matching the dark analysis-panel background.
+The **LAST MOVE** row shows **Best**, **Excellent**, **Good**, **Inaccuracy**,
+**Mistake**, or **Blunder** beside the move you just followed, including engine
+variations. Candidate rows and game history do not display quality labels.
+Compact uppercase badges such as `[BEST]` and `[BLUNDER]` invert the TUI colors:
+the whitish foreground becomes the badge background, and the dark TUI background
+becomes its text color.
 Best is the engine's top move; other moves are classified by the estimated
 winning-chance loss compared with that move, from the moving player's perspective:
 
