@@ -127,6 +127,23 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                         self.assertLessEqual(abs(colors.count("#f0f0e8") -
                                                  colors.count("#30343b")), 1)
 
+    async def test_opening_label_tracks_navigation_and_imported_variations(self):
+        board, game, _, _ = parse_input(
+            "1. e4 c5 (1... e6) 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 *"
+        )
+        app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=game)
+        async with app.run_test() as pilot:
+            self.assertEqual(app.query_one("#opening").render().plain,
+                             "B90 · Sicilian Defense: Najdorf Variation")
+            app.action_game_position(1)
+            choices = app.move_choices(app.current)
+            app.action_follow_choice(choices.index(chess.Move.from_uci("e7e6")))
+            self.assertEqual(app.query_one("#opening").render().plain, "C00 · French Defense")
+            await pilot.press("escape", "enter")
+            self.assertEqual(app.query_one("#opening").render().plain, "B20 · Sicilian Defense")
+            app.action_game_position(0)
+            self.assertFalse(app.query_one("#opening").display)
+
     async def test_pgn_navigation_and_exploration(self):
         board, moves, white_name, black_name = parse_input(
             '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *\n'

@@ -33,3 +33,7 @@ chess-analyzer = "chess_cli:main"
 
 [tool.setuptools]
 py-modules = ["chess_cli", "chess_input", "chess_session", "chess_tui", "piece_art"]
+packages = ["chess_openings"]
+
+[tool.setuptools.package-data]
+chess_openings = ["openings.tsv"]

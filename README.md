@@ -112,6 +112,11 @@ Imported side variations are listed alongside engine moves; follow them with the
 same keys or mouse clicks. Comments stay attached to that game's move tree, not
 other games or engine-generated positions.
 
+Opening labels show the ECO code and opening/variation name for the latest known
+position on the current line. Transpositions are recognized; stepping back or
+exploring another line updates the label. For FEN-only input, only the supplied
+position (and subsequent moves) can be matched. Labels work offline.
+
 - **↑/↓** — choose an original move or engine alternative
 - **→/Enter** — follow the selected move; **←** — step back
 - **Esc** — return from an explored line to its game position
@@ -124,6 +129,16 @@ Use at least 40×24 terminal cells. Larger boards use multiline pieces; smaller
 ones use chess glyphs. Narrow layouts stack the panels; scroll with the mouse
 wheel or Page Up/Down. Blue highlights the selected move, yellow the previous
 move, and red a checked king.
+
+## Opening data credits
+
+Opening names and variations come from Lichess’s
+[`chess-openings`](https://github.com/lichess-org/chess-openings) dataset, released
+under the [CC0 Public Domain Dedication](https://creativecommons.org/publicdomain/zero/1.0/).
+The bundled position index uses revision
+[`65bb03f`](https://github.com/lichess-org/chess-openings/tree/65bb03f76c7f077984db01a2f2d0534e4181ddfe)
+and can be regenerated with `uv run python scripts/build_openings.py`.
+No opening descriptions are included.
 
 ## Renderer credits
 

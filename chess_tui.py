@@ -19,6 +19,7 @@ from textual.events import Resize
 from textual.widget import Widget
 from textual.widgets import Footer, Header, Static
 
+from chess_openings import opening_label
 from piece_art import PIECE_ART
 
 
@@ -163,6 +164,7 @@ class ChessAnalysisApp(App):
         width: 1fr; height: 1fr; min-height: 9; content-align: center middle;
     }
     #evaluation-bar { width: 2; height: 1fr; margin: 1 0; }
+    #opening { color: #e3b341; margin-bottom: 1; }
     #fen, #status { color: #8b949e; }
     #fen { max-height: 3; }
     .narrow #main { layout: vertical; }
@@ -234,7 +236,7 @@ class ChessAnalysisApp(App):
                 yield Static(id="bottom-player", classes="player-name")
                 yield Static(id="fen")
             with VerticalScroll(id="analysis-side"):
-                for name in ("engine-title", "return-game", "candidates", "comments",
+                for name in ("opening", "engine-title", "return-game", "candidates", "comments",
                              "pv", "history", "status"):
                     yield Static(id=name)
         yield Footer()
@@ -270,6 +272,10 @@ class ChessAnalysisApp(App):
             info.append(f"   Exploring from {branch.fullmove_number}{turn} · Esc: game",
                         style="bold #58a6ff")
         self.query_one("#position-info", Static).update(info)
+        opening = opening_label(board)
+        opening_panel = self.query_one("#opening", Static)
+        opening_panel.display = opening is not None
+        opening_panel.update(Text(opening or ""))
         self.query_one("#fen", Static).update(Text(f"FEN  {board.fen()}", style="dim"))
 
     def move_choices(self, node: Node) -> list[chess.Move | None]:
