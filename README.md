@@ -22,8 +22,6 @@ chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2
 
 The command works from any directory. If it isn't on PATH, use
 `uv tool update-shell` (or `pipx ensurepath`) and restart your shell.
-For development without a published package: `uv run chess-analyzer`.
-To test a local tool install before publishing: `uv tool install .` (or `pipx install .`).
 
 Alternatively, pass a quoted FEN.
 
