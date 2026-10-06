@@ -7,7 +7,9 @@ from pathlib import Path
 import chess
 import chess.engine
 
-from chess_tui import ChessAnalysisApp, find_stockfish, parse_input
+from chess_cli import find_stockfish
+from chess_input import parse_input
+from chess_tui import ChessAnalysisApp
 
 
 def screen_text(app):

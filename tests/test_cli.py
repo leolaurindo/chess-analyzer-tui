@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import chess
 import pyperclip
 
-from chess_tui import main
+from chess_cli import main
 
 
 class CliTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class CliTests(unittest.TestCase):
                         self.subTest(source=source, contents=contents),
                         patch("sys.argv", ["chess-analyzer", *source, "--engine", "stockfish"]),
                         patch("pyperclip.paste", return_value=contents),
-                        patch("chess_tui.run_app", new_callable=AsyncMock) as run,
+                        patch("chess_cli.run_app", new_callable=AsyncMock) as run,
                     ):
                         main()
                         args, board, engine, moves, white, black = run.call_args.args
@@ -41,7 +41,7 @@ class CliTests(unittest.TestCase):
         with (
             patch("sys.argv", ["chess-analyzer", "--engine", "stockfish"]),
             patch("pyperclip.paste") as paste,
-            patch("chess_tui.run_app", new_callable=AsyncMock),
+            patch("chess_cli.run_app", new_callable=AsyncMock),
         ):
             main()
             paste.assert_not_called()
@@ -60,7 +60,7 @@ class CliTests(unittest.TestCase):
                 self.subTest(contents=contents),
                 patch("sys.argv", ["chess-analyzer", "-c"]),
                 patch("pyperclip.paste", side_effect=[contents]),
-                patch("chess_tui.run_app", new_callable=AsyncMock) as run,
+                patch("chess_cli.run_app", new_callable=AsyncMock) as run,
                 contextlib.redirect_stderr(io.StringIO()),
                 self.assertRaises(SystemExit) as error,
             ):
@@ -112,7 +112,7 @@ class CliTests(unittest.TestCase):
             with self.subTest(system=system, release=release):
                 with (
                     patch("sys.argv", ["chess-analyzer"]),
-                    patch("chess_tui.find_stockfish", return_value=None),
+                    patch("chess_cli.find_stockfish", return_value=None),
                     patch("platform.system", return_value=system),
                     patch("platform.freedesktop_os_release", side_effect=[release]),
                     self.assertRaises(SystemExit) as error,
