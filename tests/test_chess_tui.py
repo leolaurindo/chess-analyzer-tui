@@ -213,6 +213,27 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             app.action_game_position(0)
             self.assertFalse(app.query_one("#opening").display)
 
+    async def test_move_quality_grades_played_moves_outside_multipv_and_checkmate(self):
+        board, game, _, _ = parse_input("1. f3 e5 2. g4 Qh4# 0-1")
+        app = ChessAnalysisApp(board, self.engine, 0.05, 1, game=game)
+        async with app.run_test() as pilot:
+            await wait_for_analysis(app, pilot)
+            self.assertIn("Qh4# · Best", app.query_one("#move-quality").render().plain)
+            app.action_game_position(3)
+            async def graded():
+                while "Unrated" in app.query_one("#move-quality").render().plain:
+                    await pilot.pause()
+            await asyncio.wait_for(graded(), timeout=4)
+            self.assertIn("g4 · Blunder", app.query_one("#move-quality").render().plain)
+            self.assertIn("g4 [Blunder]", app.query_one("#history").render().plain)
+            self.assertIn("-M1", app.query_one("#candidates").render().plain)
+            await pilot.press("left")
+            await wait_for_analysis(app, pilot)
+            self.assertIn("g4", app.query_one("#candidates").render().plain)
+            self.assertIn("Blunder", app.query_one("#candidates").render().plain)
+            await pilot.press("f")
+            self.assertIn("Blunder", app.query_one("#candidates").render().plain)
+
     async def test_pgn_navigation_and_exploration(self):
         board, moves, white_name, black_name = parse_input(
             '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *\n'

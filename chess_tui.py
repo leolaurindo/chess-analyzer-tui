@@ -31,14 +31,13 @@ def side_label(color: str, name: str) -> str:
     return color if name == color else f"{color} · {name}"
 
 
-def format_score(score: chess.engine.PovScore) -> str:
-    """Evaluation in pawns, from White's perspective."""
-    white = score.white()
-    mate = white.mate()
+def format_score(score: chess.engine.Score) -> str:
+    """Format a raw White-perspective evaluation in pawns."""
+    mate = score.mate()
     if mate is not None:
-        sign = "" if white > chess.engine.Cp(0) else "-"
+        sign = "" if score > chess.engine.Cp(0) else "-"
         return f"{sign}M{abs(mate)}"
-    cp = white.score()
+    cp = score.score()
     return "?" if cp is None else f"{cp / 100:+.2f}"
 
 
@@ -49,7 +48,7 @@ class EvaluationBar(Widget):
             white_share = 0.5 if outcome.winner is None else float(outcome.winner)
         else:
             candidate = next(iter(self.app.analysis.current.candidates), None)
-            score = candidate.score if candidate else "0.00"
+            score = format_score(candidate.score) if candidate else "0.00"
             if score.startswith("M"):
                 white_share = 1.0
             elif score.startswith("-M"):
@@ -136,7 +135,7 @@ class ChessAnalysisApp(App):
     .narrow #main { layout: vertical; }
     .narrow #board-side { width: 1fr; height: 14; }
     .narrow #analysis-side { width: 1fr; height: 1fr; }
-    #engine-title, #return-game, #candidates { margin-bottom: 1; }
+    #engine-title, #move-quality, #return-game, #candidates { margin-bottom: 1; }
     #return-game { color: #e3b341; }
     #pv, #history { border-top: solid #30363d; padding-top: 1; margin-top: 1; }
     #history { color: #c9d1d9; }
@@ -191,7 +190,7 @@ class ChessAnalysisApp(App):
                 yield Static(id="bottom-player", classes="player-name")
                 yield Static(id="fen")
             with VerticalScroll(id="analysis-side"):
-                for name in ("opening", "engine-title", "return-game", "candidates", "comments",
+                for name in ("opening", "engine-title", "move-quality", "return-game", "candidates", "comments",
                              "pv", "history", "status"):
                     yield Static(id=name)
         yield Footer()
@@ -272,6 +271,11 @@ class ChessAnalysisApp(App):
         self.query_one("#engine-title", Static).update(
             Text(f"{self.engine_name}   {self.think_time:g}s / {self.multipv} lines", style="bold")
         )
+        quality = node.parent.quality(node.move_from_parent) if node.parent else None
+        quality_panel = self.query_one("#move-quality", Static)
+        quality_panel.display = node.parent is not None
+        san = node.parent.board.san(node.move_from_parent) if node.parent else ""
+        quality_panel.update(Text(f"Last move · {san} · {quality or 'Unrated'}", style="bold"))
         return_link = self.query_one("#return-game", Static)
         return_link.display = self.analysis.return_position is not None
         return_link.update(Text("← Back to original game [Esc]", style=Style(
@@ -289,7 +293,10 @@ class ChessAnalysisApp(App):
                      else "Engine" if candidate else "Explored")
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
-                row += f"  {candidate.score}"
+                row += f"  {format_score(candidate.score)}"
+            quality = node.quality(move)
+            if quality:
+                row += f" · {quality}"
             lines.append(row + "\n", style=Style(
                 color="#e3b341" if original else "#58a6ff", reverse=index == node.selected,
                 meta={"@click": f"app.follow_choice({index})"},
@@ -340,7 +347,11 @@ class ChessAnalysisApp(App):
                 prefix = f"{parent.board.fullmove_number}. " if parent.board.turn else ""
                 if index == 1 and not parent.board.turn:
                     prefix = f"{parent.board.fullmove_number}... "
-                history.append("  " + prefix + parent.board.san(cursor.move_from_parent), style=Style(
+                san = parent.board.san(cursor.move_from_parent)
+                quality = parent.quality(cursor.move_from_parent)
+                if quality:
+                    san += f" [{quality}]"
+                history.append("  " + prefix + san, style=Style(
                     color="#e3b341", reverse=cursor is anchor,
                     meta={"@click": f"app.game_position({index})"},
                 ))
@@ -358,49 +369,69 @@ class ChessAnalysisApp(App):
     def analyze_requested_position(self) -> None:
         self.analysis_requested.set()
 
+    async def search(self, node: Node, multipv: int, root_moves=None) -> list[dict] | None:
+        analysis = await self.engine.analysis(
+            node.board.copy(), chess.engine.Limit(time=self.think_time),
+            multipv=multipv, root_moves=root_moves,
+        )
+        with analysis:
+            finished = asyncio.create_task(analysis.wait())
+            changed = asyncio.create_task(self.analysis_requested.wait())
+            try:
+                done, _ = await asyncio.wait((finished, changed), return_when=asyncio.FIRST_COMPLETED)
+                if changed in done:
+                    analysis.stop()
+                await finished
+            finally:
+                changed.cancel()
+                await asyncio.gather(changed, return_exceptions=True)
+        return None if self.analysis_requested.is_set() else analysis.multipv
+
+    async def analyze_node(self, node: Node, played: chess.Move | None = None) -> bool:
+        if node.board.is_game_over():
+            node.analyzed = True
+            return True
+        if played is None and node.mainline_next:
+            played = node.mainline_next.move_from_parent
+        previous = self.move_choices(node)
+        selected = previous[node.selected] if node.selected < len(previous) else None
+        if not node.analyzed:
+            infos = await self.search(node, self.multipv)
+            if infos is None:
+                return False
+            node.candidates = [Candidate(info["pv"][0], info["score"].white(),
+                                         node.board.variation_san(info["pv"]))
+                               for info in infos if info.get("pv")]
+        # The played move may be outside MultiPV; assess it without pretending it is best.
+        if played and node.candidates and all(c.move != played for c in node.candidates):
+            infos = await self.search(node, 1, [played])
+            if infos is None:
+                return False
+            node.candidates += [Candidate(info["pv"][0], info["score"].white(),
+                                          node.board.variation_san(info["pv"]))
+                                for info in infos if info.get("pv")]
+        node.analyzed = True
+        choices = self.move_choices(node)
+        node.selected = choices.index(selected) if selected in choices else 0
+        return True
+
     @work(group="engine")
     async def analysis_loop(self) -> None:
         while True:
             await self.analysis_requested.wait()
             self.analysis_requested.clear()
             node = self.analysis.current
-            if node.analyzed or node.board.is_game_over():
-                continue
             self.set_status("Engine is thinking…", "yellow")
+            self.refresh_ui()
             try:
-                analysis = await self.engine.analysis(
-                    node.board.copy(), chess.engine.Limit(time=self.think_time),
-                    multipv=self.multipv,
-                )
-                with analysis:
-                    finished = asyncio.create_task(analysis.wait())
-                    changed = asyncio.create_task(self.analysis_requested.wait())
-                    try:
-                        done, _ = await asyncio.wait(
-                            (finished, changed), return_when=asyncio.FIRST_COMPLETED,
-                        )
-                        if changed in done:
-                            analysis.stop()
-                        await finished
-                    finally:
-                        changed.cancel()
-                        await asyncio.gather(changed, return_exceptions=True)
-                if changed in done:
+                if node.parent and not await self.analyze_node(node.parent, node.move_from_parent):
+                    continue
+                if not await self.analyze_node(node):
                     continue
             except chess.engine.EngineError as exc:
                 if node is self.analysis.current:
                     self.set_status(f"Engine error: {exc} · r to retry", "bold red")
                 continue
-            previous = self.move_choices(node)
-            selected = previous[node.selected] if node.selected < len(previous) else None
-            node.candidates = [
-                Candidate(info["pv"][0], format_score(info["score"]),
-                          node.board.variation_san(info["pv"]))
-                for info in analysis.multipv if info.get("pv")
-            ]
-            node.analyzed = True
-            choices = self.move_choices(node)
-            node.selected = choices.index(selected) if selected in choices else 0
             if node is self.analysis.current:
                 self.set_status("Analysis ready.")
                 self.refresh_ui()

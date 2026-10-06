@@ -125,7 +125,7 @@ def main() -> None:
     parser.add_argument("--user", help="Public username to browse (requires --browse)")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
     parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
-    parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
+    parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per engine search")
     parser.add_argument("-n", "--lines", type=int, default=5, help="Number of engine continuations")
     parser.add_argument("--threads", type=int, default=2, help="Engine threads (if supported)")
     parser.add_argument("--hash", type=int, default=256, help="Engine hash size in MB (if supported)")

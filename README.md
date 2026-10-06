@@ -169,6 +169,34 @@ Stockfish is found on PATH or beside the application module as `stockfish`
 Lc0's network weights and backend, separately. The app applies thread, hash,
 and multiple-line settings only when the engine supports them.
 
+## Move-quality labels
+
+Scored candidate moves, reviewed original-game moves, and the last played move
+show **Best**, **Excellent**, **Good**, **Inaccuracy**, **Mistake**, or **Blunder**.
+Best is the engine's top move; other moves are classified by the estimated
+winning-chance loss compared with that move, from the moving player's perspective:
+
+| Label | Percentage points lost |
+| --- | --- |
+| Excellent | Below 2 |
+| Good | 2 to below 5 |
+| Inaccuracy | 5 to below 10 |
+| Mistake | 10 to below 20 |
+| Blunder | 20 or more |
+
+These are transparent approximations: [Chess.com-like bands](https://support.chess.com/en/articles/8572705-how-are-moves-classified-what-is-a-blunder-or-brilliant-etc)
+combined with [Lichess's public centipawn-to-winning-chances formula](https://lichess.org/page/accuracy).
+They are not Chess.com's rating-dependent classifications. Forced mate scores
+map to 100% or 0%; mate distance is not separately graded. Brilliant, Great,
+Book, and Miss are not assigned.
+
+Analysis is on demand, not a whole-game review: visiting a position also assesses
+its preceding move. Unscored moves remain unrated. A played/original move outside
+the displayed engine lines gets an additional single-move search, including with
+`--lines 1`. `--time` applies to each search; grading can therefore take extra
+time, but navigation remains cancellable. Labels and evaluations are recalculated
+after reopening a saved analysis.
+
 ## Navigation
 
 PGNs open at the final position and use their `White`/`Black` headers for player labels

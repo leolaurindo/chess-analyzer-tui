@@ -6,9 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import chess
+import chess.engine
 
 from chess_cli import find_stockfish, main
-from chess_game import Analysis
+from chess_game import Analysis, Candidate
 from chess_session import load_session, save_session
 from chess_tui import ChessAnalysisApp
 
@@ -18,6 +19,7 @@ class SessionTests(unittest.TestCase):
         analysis = Analysis.from_input(chess.Board("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"))
         analysis.current = analysis.root.child(chess.Move.from_uci("e2e4"))
         analysis.current.analyzed = True
+        analysis.current.candidates = [Candidate(chess.Move.from_uci("e8e7"), chess.engine.Cp(125), "Ke7")]
         analysis.flipped = True
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state" / "session.json"
@@ -28,6 +30,7 @@ class SessionTests(unittest.TestCase):
             self.assertFalse(restored.root.is_mainline)
             self.assertTrue(restored.flipped)
             self.assertFalse(restored.current.analyzed)
+            self.assertEqual(restored.current.candidates, [])
             previous = path.read_bytes()
             analysis.flipped = False
             with patch("chess_session.os.replace", side_effect=OSError("disk failure")):
