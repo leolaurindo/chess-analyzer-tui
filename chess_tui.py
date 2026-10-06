@@ -3,16 +3,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import math
 import os
 import platform
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TextIO
 
 import chess
 import chess.engine
 import chess.pgn
+import pyperclip
 from rich.style import Style
 from rich.text import Text
 from textual import work
@@ -523,7 +526,7 @@ async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.
                 multipv = min(multipv, multipv_option.max)
         engine_name = engine.id.get("name") or Path(engine_path).name
         app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
-                               moves=moves if args.pgn else None, engine_name=engine_name,
+                               moves=moves if args.pgn or moves else None, engine_name=engine_name,
                                white_name=white_name, black_name=black_name)
         await app.run_async()
     finally:
@@ -541,11 +544,15 @@ def player_name(value: str | None, fallback: str) -> str:
 def load_pgn(path: str) -> tuple[chess.Board, list[chess.Move], str, str]:
     try:
         with open(path, encoding="utf-8") as pgn_file:
-            game = chess.pgn.read_game(pgn_file)
+            return parse_pgn(pgn_file)
     except OSError as exc:
         raise SystemExit(f"Could not read PGN: {exc}") from exc
+
+
+def parse_pgn(source: TextIO) -> tuple[chess.Board, list[chess.Move], str, str]:
+    game = chess.pgn.read_game(source)
     if game is None:
-        raise SystemExit("The PGN file does not contain a game.")
+        raise SystemExit("The PGN does not contain a game.")
     if game.errors:
         raise SystemExit(f"Could not parse PGN: {game.errors[0]}")
     return (game.board(), list(game.mainline_moves()),
@@ -557,8 +564,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="chess-analyzer", description="Interactive UCI chess engine analyzer.",
     )
-    parser.add_argument("fen", nargs="?", help="FEN position (mutually exclusive with --pgn)")
-    parser.add_argument("--pgn", help="PGN file to analyze from its final position")
+    parser.add_argument("fen", nargs="?", help="FEN position (mutually exclusive with --pgn and --clip)")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--pgn", help="PGN file to analyze from its final position")
+    source.add_argument("-c", "--clip", action="store_true",
+                        help="Analyze FEN or PGN from the clipboard")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
     parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
     parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
@@ -572,11 +582,24 @@ def main() -> None:
         parser.error("--time must be a positive, finite number")
     if min(args.lines, args.threads, args.hash) < 1:
         parser.error("--lines, --threads and --hash must be positive")
-    if args.fen and args.pgn:
-        parser.error("provide either a FEN or --pgn, not both")
+    if args.fen and (args.pgn or args.clip):
+        parser.error("provide only one of a FEN, --pgn, or --clip")
     moves = []
     if args.pgn:
         board, moves, pgn_white, pgn_black = load_pgn(args.pgn)
+    elif args.clip:
+        try:
+            clipboard = pyperclip.paste()
+        except (pyperclip.PyperclipException, OSError) as exc:
+            raise SystemExit(f"Could not read clipboard: {exc}") from exc
+        try:
+            board = chess.Board(clipboard.strip())
+        except ValueError:
+            board, moves, pgn_white, pgn_black = parse_pgn(io.StringIO(clipboard))
+            if not moves:
+                raise SystemExit("The clipboard does not contain a valid FEN or PGN game with moves.")
+        else:
+            pgn_white, pgn_black = "White", "Black"
     else:
         pgn_white, pgn_black = "White", "Black"
         try:

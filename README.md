@@ -1,6 +1,6 @@
 # Chess Analyzer TUI
 
-Interactive terminal chess analysis, with Stockfish as the default and support for other UCI engines.
+Interactive terminal chess analysis from FEN positions, PGN files, or your clipboard, with Stockfish as the default and support for other UCI engines.
 
 Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui).
 Full renderer credits and license information are below.
@@ -17,6 +17,7 @@ separate PyPI package):
 uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
 chess-analyzer
 chess-analyzer --pgn game.pgn
+chess-analyzer --clip              # or: chess-analyzer -c
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
 
@@ -27,6 +28,7 @@ Alternatively, pass a quoted FEN.
 
 Options:
 
+- `--clip` / `-c` — load FEN or PGN from the clipboard (cannot combine with FEN or `--pgn`)
 - `--ascii` — use ASCII pieces
 - `--time 0.5` — set analysis time
 - `--lines 3` — show multiple lines
@@ -34,6 +36,11 @@ Options:
 - `--hash 256` — set engine hash size, if supported
 - `--engine /path/to/engine` — choose a UCI engine executable
 - `--white "Supi"` / `--black "Carlsen"` — label the players (override PGN names)
+
+Copy a FEN position or PGN game and run `chess-analyzer --clip` (or `-c`).
+On Linux, install `wl-clipboard` for Wayland, or `xclip` / `xsel` for X11;
+a graphical session is required. macOS and Windows use their built-in clipboard
+support.
 
 ## Stockfish
 
