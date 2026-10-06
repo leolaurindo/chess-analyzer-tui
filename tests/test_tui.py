@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 
 import chess
 import chess.engine
+from rich.console import Console
 from rich.style import Style
 from textual.widgets import Checkbox, Input, TextArea
 
@@ -15,7 +16,7 @@ from chess_analyzer.game import Analysis
 from chess_analyzer.input import parse_input
 from chess_analyzer.library import list_analyses, load_analysis
 from chess_analyzer.session import load_session, save_session
-from chess_analyzer.tui import ChessAnalysisApp
+from chess_analyzer.tui import ChessAnalysisApp, quality_badge
 
 
 def screen_text(app):
@@ -30,6 +31,20 @@ async def wait_for_analysis(app, pilot):
         await pilot.pause()
 
     await asyncio.wait_for(ready(), timeout=4)
+
+
+class BadgeTests(unittest.TestCase):
+    def test_labels_have_padded_backgrounds_and_contrasting_text(self):
+        colors = {"Best": "#22d3ee", "Excellent": "#22d3ee", "Good": "#4ade80",
+                  "Inaccuracy": "#9ca3af", "Mistake": "#facc15", "Blunder": "#ef4444"}
+        for label, color in colors.items():
+            with self.subTest(label=label):
+                badge = quality_badge(label)
+                self.assertEqual(badge.plain, f" {label} ")
+                style = badge.get_style_at_offset(Console(), 1)
+                self.assertEqual(style.bgcolor.name, color)
+                self.assertEqual(style.color.name, "black")
+                self.assertFalse(style.reverse)
 
 
 class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
@@ -225,7 +240,18 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.pause()
             await asyncio.wait_for(graded(), timeout=4)
             self.assertIn("g4 · Blunder", app.query_one("#move-quality").render().plain)
-            self.assertIn("g4 [Blunder]", app.query_one("#history").render().plain)
+            self.assertIn("g4 Blunder", app.query_one("#history").render().plain)
+            for selector, label, color, action in (
+                ("#move-quality", "Blunder", "#ef4444", None),
+                ("#history", "Blunder", "#ef4444", "app.game_position(3)"),
+                ("#candidates", "Best", "#22d3ee", "app.follow_choice(0)"),
+            ):
+                text = app.query_one(selector).render()
+                style = next(segment.style for segment in text.render_segments() if label in segment.text)
+                self.assertEqual(style.bgcolor.name, color)
+                self.assertFalse(style.reverse)
+                if action:
+                    self.assertEqual(style.meta["@click"], action)
             self.assertIn("-M1", app.query_one("#candidates").render().plain)
             await pilot.press("left")
             await wait_for_analysis(app, pilot)

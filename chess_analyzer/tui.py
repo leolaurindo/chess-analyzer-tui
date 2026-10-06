@@ -27,6 +27,18 @@ from .openings import opening_label
 from .piece_art import PIECE_ART
 
 
+QUALITY_COLORS = {
+    "Best": "#22d3ee", "Excellent": "#22d3ee", "Good": "#4ade80",
+    "Inaccuracy": "#9ca3af", "Mistake": "#facc15", "Blunder": "#ef4444",
+}
+
+
+def quality_badge(label: str) -> Text:
+    return Text(f" {label} ", style=Style(
+        color="black", bgcolor=QUALITY_COLORS[label], bold=True, reverse=False,
+    ))
+
+
 def side_label(color: str, name: str) -> str:
     return color if name == color else f"{color} · {name}"
 
@@ -275,7 +287,9 @@ class ChessAnalysisApp(App):
         quality_panel = self.query_one("#move-quality", Static)
         quality_panel.display = node.parent is not None
         san = node.parent.board.san(node.move_from_parent) if node.parent else ""
-        quality_panel.update(Text(f"Last move · {san} · {quality or 'Unrated'}", style="bold"))
+        last_move = Text(f"Last move · {san} ·", style="bold")
+        last_move.append(quality_badge(quality) if quality else " Unrated")
+        quality_panel.update(last_move)
         return_link = self.query_one("#return-game", Static)
         return_link.display = self.analysis.return_position is not None
         return_link.update(Text("← Back to original game [Esc]", style=Style(
@@ -294,13 +308,14 @@ class ChessAnalysisApp(App):
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
                 row += f"  {format_score(candidate.score)}"
-            quality = node.quality(move)
-            if quality:
-                row += f" · {quality}"
-            lines.append(row + "\n", style=Style(
+            row = Text(row, style=Style(
                 color="#e3b341" if original else "#58a6ff", reverse=index == node.selected,
                 meta={"@click": f"app.follow_choice({index})"},
             ))
+            quality = node.quality(move)
+            if quality:
+                row.append(" ·").append(quality_badge(quality))
+            lines.append(row).append("\n")
         lines.append("→ / Enter follows selection\n", style="dim")
         if board.is_game_over():
             lines.append(f"Game over: {board.result()}\n", style="dim")
@@ -348,13 +363,14 @@ class ChessAnalysisApp(App):
                 if index == 1 and not parent.board.turn:
                     prefix = f"{parent.board.fullmove_number}... "
                 san = parent.board.san(cursor.move_from_parent)
-                quality = parent.quality(cursor.move_from_parent)
-                if quality:
-                    san += f" [{quality}]"
-                history.append("  " + prefix + san, style=Style(
+                entry = Text("  " + prefix + san, style=Style(
                     color="#e3b341", reverse=cursor is anchor,
                     meta={"@click": f"app.game_position({index})"},
                 ))
+                quality = parent.quality(cursor.move_from_parent)
+                if quality:
+                    entry.append(quality_badge(quality))
+                history.append(entry)
             if not node.is_mainline:
                 history.append("\n\nExplored line\n", style="bold #58a6ff")
                 history.append(history_to_san(node))
