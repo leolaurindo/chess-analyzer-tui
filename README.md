@@ -1,9 +1,11 @@
 # Chess Analyzer TUI
 
-Interactive terminal chess analysis from FEN or PGN text, files, or your clipboard, with Stockfish as the default engine and support for other UCI engines.
+Interactive terminal chess analysis
 
-Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui).
-Full renderer credits and license information are below.
+Initialize analysis from FEN or PGN text, files, your clipboard, directly from URLs or public apis from `chess.com` and `lichess.org`. Stockfish is the default engine, but also supports other UCI engines.
+
+- Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui). Full renderer credits and license information are below.
+- Opening information extracted from [lichess's github repository](#opening-data-credits).
 
 ![Chess Analyzer TUI demo](demos/showcase.gif)
 
@@ -26,6 +28,9 @@ chess-analyzer --file game.pgn
 chess-analyzer --file position.fen
 chess-analyzer --clip
 chess-analyzer --continue          # or: chess-analyzer -c
+chess-analyzer --library           # choose a saved analysis
+chess-analyzer --browse chess.com --user leolaurindo
+chess-analyzer --browse lichess --user leolaurindo
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
 
@@ -35,10 +40,16 @@ The command works from any directory. If it isn't on PATH, use
 Pass quoted FEN or PGN text, a Chess.com game URL, a Lichess game or study URL, or
 an HTTPS URL that serves plain-text PGN. The examples include a Lichess study of
 Mikhail Tal and a regular Lichess game by Magnus Carlsen, plus a public Chess.com
-game by GM LPSupi. Use `--file`
+game by GM LPSupi. A game URL is sufficient for either provider; no username,
+month, or API key is required. Without a game link, use
+`--browse chess.com --user NAME` or `--browse lichess --user NAME` instead. Chess.com URL-only lookup uses an undocumented callback to
+resolve archive details, then downloads the PGN from a public monthly archive;
+if that callback becomes unavailable, use the browser, which uses documented
+APIs only. Use `--file`
 to read a UTF-8 file or `--clip` to read the clipboard. Choose one input source;
 the format is detected automatically. URL loads
-are limited to public HTTPS hosts, 4 MiB, and a 10-second request timeout. Without
+are limited to public HTTPS hosts and a 10-second timeout per request. Generic
+downloads are capped at 4 MiB; Chess.com monthly archives at 16 MiB. Without
 input, analysis starts from the initial position.
 
 Options:
@@ -46,6 +57,8 @@ Options:
 - `--file PATH` — load FEN or PGN from a file
 - `--clip` — load FEN or PGN from the clipboard
 - `--continue` / `-c` — restore the last analysis session
+- `--library` — interactively reopen a named local analysis
+- `--browse PROVIDER --user NAME` — browse public games; provider is `chess.com` or `lichess`
 - `--ascii` — use ASCII pieces
 - `--time 0.5` — set analysis time
 - `--lines 3` — show multiple lines
@@ -75,6 +88,59 @@ stored locally:
 - Windows: `%LOCALAPPDATA%\\chess-analyzer`
 
 `--continue` cannot be combined with text, `--file`, or `--clip`.
+
+## Local analysis library
+
+- **c** opens the current position’s comment editor; **Ctrl+S** or Save applies
+  the edit, and Esc cancels. An empty comment removes it. Imported comments can
+  be edited, and explored positions can have their own comments.
+- **s** saves the entire analysis under a name: comments, imported and explored
+  variations, current position, player names, and orientation. Existing names
+  require explicit replacement confirmation. Engine evaluations are recalculated.
+- **l** opens the library; choose with ↑/↓ and Enter. Esc leaves the current
+  analysis unchanged. You can also start with `chess-analyzer --library`.
+
+Named saves are independent of the automatic `--continue` snapshot. Further
+edits require **s** to update the named save; changing games does not change it.
+The library stores one JSON file per named analysis in:
+
+- Linux: `$XDG_DATA_HOME/chess-analyzer/analyses`, or `~/.local/share/chess-analyzer/analyses`
+- macOS: `~/Library/Application Support/chess-analyzer/analyses`
+- Windows: `%LOCALAPPDATA%\\chess-analyzer\\analyses`
+
+## Online game browser
+
+Choose the provider and public username on the command line:
+
+```sh
+chess-analyzer --browse chess.com --user leolaurindo
+chess-analyzer --browse lichess --user leolaurindo
+```
+
+Games load automatically; there are no provider, username, or month selectors.
+No login, token storage, or play-token reuse is needed.
+
+- **↑/↓** chooses a game; **Enter** opens it for analysis, preserving its PGN
+  comments and variations. Only completed standard-chess games are listed.
+- **←/→** browses newer/older games. Chess.com uses archive months, newest first;
+  Lichess uses pages of 50 games. Public Chess.com archives can lag due to caching.
+- **r** reloads the current month/page, including after a loading error.
+- **Esc** cancels without changing your analysis, including during a request.
+- After opening a game, **b** returns to this provider/username’s browser. This
+  shortcut is available only when the app was started with `--browse`.
+- Press **s** during analysis if you want to keep a named local copy.
+
+Requests are sequential, run off the UI thread, and have time/size limits. Rate
+limits are shown without automatic retries; wait at least a minute before retrying.
+Canceling discards a pending result; the underlying HTTP request can run until its
+timeout. Starting the browser automatically requests the latest games.
+
+`--browse` and `--library` restore the last session behind their menus when one
+exists, so canceling does not replace your continue snapshot with a new game.
+These startup menus cannot be combined with another input source.
+
+Provider references: [Chess.com Published Data API](https://support.chess.com/en/articles/9650547-published-data-api)
+and [Lichess game export API](https://lichess.org/api#tag/Games/operation/apiGamesUser).
 
 ## Stockfish
 
@@ -117,7 +183,7 @@ position on the current line. Transpositions are recognized; stepping back or
 exploring another line updates the label. For FEN-only input, only the supplied
 position (and subsequent moves) can be matched. Labels work offline.
 
-- **↑/↓** — choose an original move or engine alternative
+- **↑/↓** — choose an original move, retained variation, or engine alternative
 - **→/Enter** — follow the selected move; **←** — step back
 - **Esc** — return from an explored line to its game position
 - **f** — flip board; **r** — reanalyze; **q** — quit

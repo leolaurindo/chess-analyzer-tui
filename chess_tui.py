@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Callable
-from dataclasses import dataclass, field
 
 import chess
 import chess.engine
@@ -16,41 +15,16 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Resize
+from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Footer, Header, Static
 
+from chess_browser import GameBrowser
+from chess_dialogs import CommentEditor, LibraryDialog, SaveAnalysisDialog
+from chess_game import Analysis, Candidate, Node, history_to_san
+from chess_library import SavedAnalysis, library_path
 from chess_openings import opening_label
 from piece_art import PIECE_ART
-
-
-@dataclass
-class Candidate:
-    move: chess.Move
-    score: str
-    pv: str
-
-
-@dataclass
-class Node:
-    board: chess.Board
-    parent: Node | None = None
-    move_from_parent: chess.Move | None = None
-    mainline_next: Node | None = None
-    is_mainline: bool = False
-    candidates: list[Candidate] = field(default_factory=list)
-    selected: int = 0
-    children: dict[chess.Move, Node] = field(default_factory=dict)
-    analyzed: bool = False
-    imported: bool = False
-    comment: str = ""
-    starting_comment: str = ""
-
-    def child(self, move: chess.Move) -> Node:
-        if move not in self.children:
-            board = self.board.copy()
-            board.push(move)
-            self.children[move] = Node(board, parent=self, move_from_parent=move)
-        return self.children[move]
 
 
 def side_label(color: str, name: str) -> str:
@@ -68,21 +42,13 @@ def format_score(score: chess.engine.PovScore) -> str:
     return "?" if cp is None else f"{cp / 100:+.2f}"
 
 
-def history_to_san(node: Node) -> str:
-    moves = []
-    while node.parent:
-        moves.append(node.move_from_parent)
-        node = node.parent
-    return node.board.variation_san(reversed(moves)) if moves else "(starting position)"
-
-
 class EvaluationBar(Widget):
     def render(self) -> Text:
-        outcome = self.app.current.board.outcome()
+        outcome = self.app.analysis.current.board.outcome()
         if outcome is not None:
             white_share = 0.5 if outcome.winner is None else float(outcome.winner)
         else:
-            candidate = next(iter(self.app.current.candidates), None)
+            candidate = next(iter(self.app.analysis.current.candidates), None)
             score = candidate.score if candidate else "0.00"
             if score.startswith("M"):
                 white_share = 1.0
@@ -103,11 +69,11 @@ class ChessBoard(Widget):
 
     def render(self) -> Text:
         app = self.app
-        board = app.current.board
+        board = app.analysis.current.board
         selected = app.selected_move()
-        last = app.current.move_from_parent
-        files = list(range(7, -1, -1) if app.flipped else range(8))
-        ranks = range(8) if app.flipped else range(7, -1, -1)
+        last = app.analysis.current.move_from_parent
+        files = list(range(7, -1, -1) if app.analysis.flipped else range(8))
+        ranks = range(8) if app.analysis.flipped else range(7, -1, -1)
         cell_width = max(2, min(10, (self.size.width - 3) // 8))
         cell_height = max(1, min(5, (self.size.height - 1) // 8))
         art = {}
@@ -185,6 +151,10 @@ class ChessAnalysisApp(App):
         Binding("escape", "return_to_game", "Original game", priority=True),
         ("f", "flip_board", "Flip"),
         ("r", "reanalyze", "Re-analyze"),
+        ("c", "edit_comment", "Comment"),
+        ("s", "save_analysis", "Save"),
+        ("l", "open_library", "Library"),
+        ("b", "browse_games", "Games"),
         ("q", "quit", "Quit"),
     ]
 
@@ -192,36 +162,21 @@ class ChessAnalysisApp(App):
                  think_time: float, multipv: int, ascii_pieces: bool = False,
                  game: chess.pgn.Game | None = None, engine_name: str = "Engine",
                  white_name: str = "White", black_name: str = "Black",
-                 on_session_change: Callable[[ChessAnalysisApp], None] | None = None):
+                 on_session_change: Callable[[Analysis], None] | None = None,
+                 open_library: bool = False,
+                 browse_provider: str | None = None, browse_user: str | None = None):
         super().__init__()
         self.on_session_change = on_session_change
+        self.open_library = open_library
+        self.browse_provider = browse_provider
+        self.browse_user = browse_user
         self.engine = engine
         self.think_time = think_time
         self.multipv = multipv
         self.ascii_pieces = ascii_pieces
         self.engine_name = engine_name
-        self.white_name = white_name
-        self.black_name = black_name
-        self.has_pgn = game is not None
-        self.root = Node(board.copy(), is_mainline=self.has_pgn)
-        if game is not None:
-            pending = [(self.root, game)]
-            while pending:
-                node, source = pending.pop()
-                node.imported = True
-                node.comment = source.comment
-                node.starting_comment = source.starting_comment
-                for index, variation in enumerate(source.variations):
-                    child = node.child(variation.move)
-                    child.is_mainline = node.is_mainline and index == 0
-                    if child.is_mainline:
-                        node.mainline_next = child
-                    pending.append((child, variation))
-        self.current = self.root
-        while self.current.mainline_next:
-            self.current = self.current.mainline_next
-        self.return_position: Node | None = None
-        self.flipped = False
+        self.analysis = Analysis.from_input(board, game, white_name, black_name)
+        self.saved_title = ""
         self.analysis_requested = asyncio.Event()
 
     def compose(self) -> ComposeResult:
@@ -246,28 +201,36 @@ class ChessAnalysisApp(App):
         self.analyze_requested_position()
         self.analysis_loop()
         self.save_session()
+        if self.open_library:
+            self.action_open_library()
+        elif self.browse_provider:
+            self.action_browse_games()
 
     def save_session(self) -> None:
         if self.on_session_change is not None:
-            self.on_session_change(self)
+            self.on_session_change(self.analysis)
 
     def on_resize(self, event: Resize) -> None:
         self.screen.set_class(event.size.width < 64, "narrow")
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
-        return action != "return_to_game" or self.return_position is not None
+        if isinstance(self.screen, ModalScreen):
+            return False
+        if action == "browse_games":
+            return bool(self.browse_provider and self.browse_user)
+        return action != "return_to_game" or self.analysis.return_position is not None
 
     def refresh_ui(self) -> None:
         self.refresh_board()
         self.refresh_analysis_panel()
-        board = self.current.board
+        board = self.analysis.current.board
         info = Text("White to move" if board.turn else "Black to move", style="bold")
         if board.is_check():
             info.append("   CHECKMATE" if board.is_checkmate() else "   CHECK", style="bold red")
-        if self.current.is_mainline:
+        if self.analysis.current.is_mainline:
             info.append("   Original game", style="bold #e3b341")
-        elif self.return_position:
-            branch = self.return_position.board
+        elif self.analysis.return_position:
+            branch = self.analysis.return_position.board
             turn = "." if branch.turn else "..."
             info.append(f"   Exploring from {branch.fullmove_number}{turn} · Esc: game",
                         style="bold #58a6ff")
@@ -282,36 +245,35 @@ class ChessAnalysisApp(App):
         original = node.mainline_next.move_from_parent if node.mainline_next else None
         # A non-playable end row prevents jumping from the PGN into an engine line.
         moves = [original] if node.is_mainline else []
-        moves += [move for move, child in node.children.items()
-                  if child.imported and move != original]
+        moves += [move for move in node.children if move != original]
         return moves + [c.move for c in node.candidates if c.move not in moves]
 
     def selected_move(self) -> chess.Move | None:
-        moves = self.move_choices(self.current)
+        moves = self.move_choices(self.analysis.current)
         if not moves:
             return None
-        self.current.selected %= len(moves)
-        return moves[self.current.selected]
+        self.analysis.current.selected %= len(moves)
+        return moves[self.analysis.current.selected]
 
     def refresh_board(self) -> None:
         self.query_one("#board", ChessBoard).refresh()
         self.query_one("#evaluation-bar", EvaluationBar).refresh()
         top_color, top_name, bottom_color, bottom_name = (
-            ("White", self.white_name, "Black", self.black_name) if self.flipped
-            else ("Black", self.black_name, "White", self.white_name)
+            ("White", self.analysis.white_name, "Black", self.analysis.black_name) if self.analysis.flipped
+            else ("Black", self.analysis.black_name, "White", self.analysis.white_name)
         )
         self.query_one("#top-player", Static).update(side_label(top_color, top_name))
         self.query_one("#bottom-player", Static).update(side_label(bottom_color, bottom_name))
 
     def refresh_analysis_panel(self) -> None:
-        node = self.current
+        node = self.analysis.current
         board = node.board
         candidates = {c.move: c for c in node.candidates}
         self.query_one("#engine-title", Static).update(
             Text(f"{self.engine_name}   {self.think_time:g}s / {self.multipv} lines", style="bold")
         )
         return_link = self.query_one("#return-game", Static)
-        return_link.display = self.return_position is not None
+        return_link.display = self.analysis.return_position is not None
         return_link.update(Text("← Back to original game [Esc]", style=Style(
             color="#e3b341", meta={"@click": "app.return_to_game"},
         )))
@@ -323,7 +285,8 @@ class ChessAnalysisApp(App):
             san = board.san(move) if move else "End of original game"
             child = node.children.get(move)
             imported = child is not None and child.imported
-            label = "Original" if original else "Variation" if imported else "Engine"
+            label = ("Original" if original else "Variation" if imported
+                     else "Engine" if candidate else "Explored")
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
                 row += f"  {candidate.score}"
@@ -361,14 +324,14 @@ class ChessAnalysisApp(App):
         self.query_one("#pv", Static).update(pv)
 
         history = Text()
-        if self.has_pgn:
+        if self.analysis.has_pgn:
             history.append("Original game · click a move\n", style="bold #e3b341")
-            anchor = node if node.is_mainline else self.return_position
+            anchor = node if node.is_mainline else self.analysis.return_position
             history.append("Start", style=Style(
-                color="#e3b341", reverse=anchor is self.root,
+                color="#e3b341", reverse=anchor is self.analysis.root,
                 meta={"@click": "app.game_position(0)"},
             ))
-            cursor = self.root
+            cursor = self.analysis.root
             index = 0
             while cursor.mainline_next:
                 parent = cursor
@@ -400,7 +363,7 @@ class ChessAnalysisApp(App):
         while True:
             await self.analysis_requested.wait()
             self.analysis_requested.clear()
-            node = self.current
+            node = self.analysis.current
             if node.analyzed or node.board.is_game_over():
                 continue
             self.set_status("Engine is thinking…", "yellow")
@@ -425,7 +388,7 @@ class ChessAnalysisApp(App):
                 if changed in done:
                     continue
             except chess.engine.EngineError as exc:
-                if node is self.current:
+                if node is self.analysis.current:
                     self.set_status(f"Engine error: {exc} · r to retry", "bold red")
                 continue
             previous = self.move_choices(node)
@@ -438,43 +401,43 @@ class ChessAnalysisApp(App):
             node.analyzed = True
             choices = self.move_choices(node)
             node.selected = choices.index(selected) if selected in choices else 0
-            if node is self.current:
+            if node is self.analysis.current:
                 self.set_status("Analysis ready.")
                 self.refresh_ui()
 
     def action_select_move(self, direction: int) -> None:
-        moves = self.move_choices(self.current)
+        moves = self.move_choices(self.analysis.current)
         if moves:
-            self.current.selected = (self.current.selected + direction) % len(moves)
+            self.analysis.current.selected = (self.analysis.current.selected + direction) % len(moves)
             self.refresh_board()
             self.refresh_analysis_panel()
 
     def action_next_position(self) -> None:
         move = self.selected_move()
         if move is not None:
-            if self.current.is_mainline:
-                original = self.current.mainline_next
-                self.return_position = (
-                    None if original and original.move_from_parent == move else self.current
+            if self.analysis.current.is_mainline:
+                original = self.analysis.current.mainline_next
+                self.analysis.return_position = (
+                    None if original and original.move_from_parent == move else self.analysis.current
                 )
-            self.show_position(self.current.child(move))
+            self.show_position(self.analysis.current.child(move))
 
     def action_follow_choice(self, index: int) -> None:
-        self.current.selected = index
+        self.analysis.current.selected = index
         self.action_next_position()
 
     def action_game_position(self, index: int) -> None:
-        node = self.root
+        node = self.analysis.root
         for _ in range(index):
             if node.mainline_next is None:
                 break
             node = node.mainline_next
-        self.return_position = None
+        self.analysis.return_position = None
         node.selected = 0
         self.show_position(node)
 
     def show_position(self, node: Node) -> None:
-        self.current = node
+        self.analysis.current = node
         self.refresh_bindings()
         self.set_status("Analysis ready." if node.analyzed else "")
         self.refresh_ui()
@@ -483,24 +446,67 @@ class ChessAnalysisApp(App):
         self.save_session()
 
     def action_return_to_game(self) -> None:
-        if self.return_position:
-            node = self.return_position
-            self.return_position = None
+        if self.analysis.return_position:
+            node = self.analysis.return_position
+            self.analysis.return_position = None
             node.selected = 0
             self.show_position(node)
 
     def action_previous_position(self) -> None:
-        node = self.current.parent
+        node = self.analysis.current.parent
         if node:
             if node.is_mainline:
-                self.return_position = None
+                self.analysis.return_position = None
             self.show_position(node)
 
     def action_flip_board(self) -> None:
-        self.flipped = not self.flipped
+        self.analysis.flipped = not self.analysis.flipped
         self.refresh_board()
         self.save_session()
 
     def action_reanalyze(self) -> None:
-        self.current.analyzed = False
+        self.analysis.current.analyzed = False
         self.analyze_requested_position()
+
+    def replace_analysis(self, analysis: Analysis, title: str = "") -> None:
+        self.analysis = analysis
+        self.saved_title = title
+        self.sub_title = title
+        self.show_position(analysis.current)
+
+    def action_edit_comment(self) -> None:
+        node = self.analysis.current
+
+        def edited(comment: str | None) -> None:
+            if comment is not None:
+                node.comment = comment
+                self.save_session()
+            self.refresh_ui()
+
+        self.push_screen(CommentEditor(node.comment), edited)
+
+    def action_save_analysis(self) -> None:
+        title = self.saved_title or f"{self.analysis.white_name} vs {self.analysis.black_name}"
+
+        def saved(entry: SavedAnalysis | None) -> None:
+            if entry is not None:
+                self.saved_title = entry.title
+                self.sub_title = entry.title
+                self.notify(f"Saved: {entry.title}")
+            self.refresh_ui()
+
+        self.push_screen(SaveAnalysisDialog(self.analysis, title, library_path()), saved)
+
+    def analysis_selected(self, result: tuple[str, Analysis] | None) -> None:
+        if result is not None:
+            title, analysis = result
+            self.replace_analysis(analysis, title)
+        else:
+            self.refresh_ui()
+
+    def action_open_library(self) -> None:
+        self.push_screen(LibraryDialog(library_path()), self.analysis_selected)
+
+    def action_browse_games(self) -> None:
+        if self.browse_provider and self.browse_user:
+            self.push_screen(GameBrowser(self.browse_provider, self.browse_user), self.analysis_selected)

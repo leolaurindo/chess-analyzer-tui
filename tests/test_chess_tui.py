@@ -1,13 +1,20 @@
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import chess
 import chess.engine
 from rich.style import Style
+from textual.widgets import Checkbox, Input, TextArea
 
 from chess_cli import find_stockfish
+from chess_game import Analysis
 from chess_input import parse_input
+from chess_library import list_analyses, load_analysis
+from chess_session import load_session, save_session
 from chess_tui import ChessAnalysisApp
 
 
@@ -18,7 +25,7 @@ def screen_text(app):
 
 async def wait_for_analysis(app, pilot):
     async def ready():
-        while not app.current.analyzed:
+        while not app.analysis.current.analyzed:
             await asyncio.sleep(0.01)
         await pilot.pause()
 
@@ -97,10 +104,10 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             app.think_time = 0.05
             await asyncio.wait_for(pilot.press("left"), timeout=2)
             await wait_for_analysis(app, pilot)
-            self.assertTrue(app.current.candidates)
+            self.assertTrue(app.analysis.current.candidates)
             await asyncio.wait_for(pilot.press("right"), timeout=2)
             await wait_for_analysis(app, pilot)
-            self.assertTrue(app.current.candidates)
+            self.assertTrue(app.analysis.current.candidates)
 
     async def test_evaluation_bar_uses_terminal_game_result(self):
         white_mate = chess.Board("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1")
@@ -127,6 +134,68 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                         self.assertLessEqual(abs(colors.count("#f0f0e8") -
                                                  colors.count("#30343b")), 1)
 
+    def assert_dialog_fits(self, app, selectors=("#save", "#cancel")):
+        for selector in selectors:
+            region = app.screen.query_one(selector).region
+            self.assertTrue(0 <= region.x < region.right <= 40, selector)
+            self.assertTrue(0 <= region.y < region.bottom <= 24, selector)
+
+    async def test_edit_save_and_reopen_analysis_without_navigation_keys_leaking(self):
+        board, game, white, black = parse_input('1. e4 {Imported} e5 *')
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory) / "library"
+            session = Path(directory) / "session.json"
+            app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=game,
+                                   white_name=white, black_name=black,
+                                   on_session_change=lambda state: save_session(state, session))
+            with patch("chess_tui.library_path", return_value=folder):
+                async with app.run_test(size=(40, 24)) as pilot:
+                    node = app.analysis.current
+                    await pilot.press("c")
+                    self.assert_dialog_fits(app)
+                    editor = app.screen.query_one(TextArea)
+                    editor.load_text("My [literal] comment")
+                    await pilot.press("left", "q")
+                    self.assertIs(app.analysis.current, node)
+                    editor.load_text("My [literal] comment")
+                    await pilot.press("ctrl+s")
+                    self.assertEqual(node.comment, "My [literal] comment")
+                    self.assertEqual(load_session(session).current.comment, node.comment)
+                    for cancel in ("escape", "button"):
+                        await pilot.press("c")
+                        app.screen.query_one(TextArea).load_text("Canceled edit")
+                        if cancel == "escape":
+                            await pilot.press("escape")
+                        else:
+                            await pilot.click("#cancel")
+                        self.assertEqual(node.comment, "My [literal] comment")
+                    await pilot.press("s")
+                    self.assert_dialog_fits(app)
+                    app.screen.query_one(Input).value = "Tal notes"
+                    await pilot.click("#save")
+                    entries, _ = list_analyses(folder)
+                    self.assertEqual([entry.title for entry in entries], ["Tal notes"])
+                    node.comment = "Replacement"
+                    await pilot.press("s")
+                    await pilot.click("#save")
+                    self.assertIn("already exists", app.screen.query_one("#error").render().plain)
+                    self.assertEqual(load_analysis(entries[0].path).current.comment, "My [literal] comment")
+                    app.screen.query_one(Checkbox).value = True
+                    await pilot.press("ctrl+s")
+                    self.assertEqual(load_analysis(entries[0].path).current.comment, "Replacement")
+                    app.replace_analysis(Analysis.from_input(chess.Board()))
+                    self.assertEqual(app.analysis.current.comment, "")
+                    await pilot.press("l")
+                    await pilot.pause()
+                    self.assert_dialog_fits(app, ("#analyses",))
+                    await pilot.press("enter")
+                    self.assertEqual(app.analysis.current.comment, "Replacement")
+                    self.assertEqual(load_session(session).current.comment, "Replacement")
+                    await pilot.press("c")
+                    app.screen.query_one(TextArea).load_text("")
+                    await pilot.press("ctrl+s")
+                    self.assertFalse(app.query_one("#comments").display)
+
     async def test_opening_label_tracks_navigation_and_imported_variations(self):
         board, game, _, _ = parse_input(
             "1. e4 c5 (1... e6) 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 *"
@@ -136,7 +205,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one("#opening").render().plain,
                              "B90 · Sicilian Defense: Najdorf Variation")
             app.action_game_position(1)
-            choices = app.move_choices(app.current)
+            choices = app.move_choices(app.analysis.current)
             app.action_follow_choice(choices.index(chess.Move.from_uci("e7e6")))
             self.assertEqual(app.query_one("#opening").render().plain, "C00 · French Defense")
             await pilot.press("escape", "enter")
@@ -162,36 +231,36 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · Carlsen")
             await pilot.press("f")
             await pilot.press("right", "enter")
-            self.assertEqual(app.current.board.fen(), final.fen())  # Stop at the PGN's end.
+            self.assertEqual(app.analysis.current.board.fen(), final.fen())  # Stop at the PGN's end.
             app.think_time = 30
             await pilot.press("left")
-            anchor = app.current.board.fen()
+            anchor = app.analysis.current.board.fen()
             self.assertIn("Original", str(app.query_one("#candidates").render()))
             await asyncio.wait_for(pilot.press("enter"), timeout=2)
-            self.assertEqual(app.current.board.fen(), final.fen())
+            self.assertEqual(app.analysis.current.board.fen(), final.fen())
             app.think_time = 0.05
             await pilot.press("left")
             await wait_for_analysis(app, pilot)
             await pilot.press("down", "right")
-            branch = app.current.board.fen()
-            self.assertFalse(app.current.is_mainline)
+            branch = app.analysis.current.board.fen()
+            self.assertFalse(app.analysis.current.is_mainline)
             await wait_for_analysis(app, pilot)
             self.assertIn("1...", str(app.query_one("#position-info").render()))
             await pilot.press("right", "escape")
-            self.assertEqual(app.current.board.fen(), anchor)
+            self.assertEqual(app.analysis.current.board.fen(), anchor)
             await pilot.press("down", "right")
-            self.assertEqual(app.current.board.fen(), branch)
+            self.assertEqual(app.analysis.current.board.fen(), branch)
             await pilot.click("#return-game")
-            self.assertEqual(app.current.board.fen(), anchor)
+            self.assertEqual(app.analysis.current.board.fen(), anchor)
             await pilot.press("enter")
-            self.assertEqual(app.current.board.fen(), final.fen())
+            self.assertEqual(app.analysis.current.board.fen(), final.fen())
             await pilot.press("left")
             await pilot.pause()
             await pilot.click("#candidates", offset=(4, 2))
-            self.assertFalse(app.current.is_mainline)
+            self.assertFalse(app.analysis.current.is_mainline)
             await pilot.pause()
             await pilot.click("#history", offset=(2, 3))
-            self.assertEqual(app.current.board.fen(), chess.STARTING_FEN)
+            self.assertEqual(app.analysis.current.board.fen(), chess.STARTING_FEN)
 
 
 if __name__ == "__main__":

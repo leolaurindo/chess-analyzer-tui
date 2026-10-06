@@ -10,6 +10,9 @@ import chess
 import pyperclip
 
 from chess_cli import main
+from chess_game import Analysis
+from chess_input import parse_input
+from chess_session import save_session
 
 
 class CliTests(unittest.TestCase):
@@ -90,7 +93,11 @@ class CliTests(unittest.TestCase):
     def test_input_sources_are_mutually_exclusive(self):
         for sources in (["--clip", chess.STARTING_FEN], ["--clip", "--file", "game.pgn"],
                         ["--file", "game.pgn", chess.STARTING_FEN], ["-c", "--clip"],
-                        ["--continue", "--file", "game.pgn"], ["-c", chess.STARTING_FEN]):
+                        ["--continue", "--file", "game.pgn"], ["-c", chess.STARTING_FEN],
+                        ["--library", "--clip"], ["--library", "--continue"],
+                        ["--browse", "lichess", "--user", "Alice", "--library"],
+                        ["--browse", "lichess", "--user", "Alice", "--continue"],
+                        ["--browse", "lichess", "--user", "Alice", chess.STARTING_FEN]):
             with (
                 self.subTest(sources=sources),
                 patch("sys.argv", ["chess-analyzer", *sources]),
@@ -101,6 +108,62 @@ class CliTests(unittest.TestCase):
                 main()
             self.assertEqual(error.exception.code, 2)
             paste.assert_not_called()
+
+    def test_startup_menus_restore_existing_analysis_before_opening(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            analysis = Analysis.from_input(chess.Board(), white_name="Alice", black_name="Bob")
+            analysis.current.comment = "Keep my note"
+            save_session(analysis, path)
+            previous = path.read_bytes()
+            for flag, source in (("--library", ["--library"]),
+                                 ("--browse", ["--browse", "lichess", "--user", "Alice"])):
+                with (self.subTest(flag=flag),
+                      patch("sys.argv", ["chess-analyzer", *source, "--engine", "stockfish"]),
+                      patch("chess_cli.session_path", return_value=path),
+                      patch("chess_cli.run_app", new_callable=AsyncMock) as run):
+                    main()
+                self.assertEqual(run.call_args.kwargs["session"].current.comment, "Keep my note")
+                self.assertTrue(getattr(run.call_args.args[0], flag[2:]))
+                self.assertEqual(path.read_bytes(), previous)
+
+    def test_chesscom_url_needs_no_extra_flags_and_browse_needs_no_link(self):
+        url = "https://www.chess.com/game/live/4912555148"
+        loaded = parse_input('[White "LPSupi"]\n[Black "MenuGarden"]\n\n1. e4 d5 *')
+        with (patch("sys.argv", ["chess-analyzer", url, "--engine", "stockfish"]),
+              patch("chess_cli.load_input", return_value=loaded) as load,
+              patch("chess_cli.run_app", new_callable=AsyncMock) as run):
+            main()
+        load.assert_called_once_with(url, file=None, clipboard=False)
+        self.assertEqual(run.call_args.args[4:], ("LPSupi", "MenuGarden"))
+        self.assertEqual([move.uci() for move in run.call_args.args[3].mainline_moves()],
+                         ["e2e4", "d7d5"])
+        with tempfile.TemporaryDirectory() as directory:
+            with (patch("sys.argv", ["chess-analyzer", "--browse", "chess.com", "--user", "Alice",
+                                     "--engine", "stockfish"]),
+                  patch("chess_cli.session_path", return_value=Path(directory) / "absent.json"),
+                  patch("chess_online.fetch_text") as fetch,
+                  patch("chess_cli.run_app", new_callable=AsyncMock) as run):
+                main()
+            self.assertEqual(run.call_args.args[0].browse, "chess.com")
+            self.assertEqual(run.call_args.args[0].user, "Alice")
+            self.assertIsNone(run.call_args.args[3])
+            fetch.assert_not_called()
+
+    def test_browse_requires_provider_and_username_before_loading(self):
+        for flags in (["--browse"], ["--browse", "lichess"], ["--user", "Alice"],
+                      ["--browse", "other", "--user", "Alice"],
+                      ["--browse", "chess.com", "--user", "../Alice"],
+                      ["--browse", "lichess", "--user", ""]):
+            with (self.subTest(flags=flags), patch("sys.argv", ["chess-analyzer", *flags]),
+                  patch("chess_cli.load_input") as load,
+                  patch("chess_cli.find_stockfish") as engine,
+                  contextlib.redirect_stderr(io.StringIO()),
+                  self.assertRaises(SystemExit) as error):
+                main()
+            self.assertEqual(error.exception.code, 2)
+            load.assert_not_called()
+            engine.assert_not_called()
 
     def test_continue_reports_missing_or_corrupt_session(self):
         with tempfile.TemporaryDirectory() as directory:

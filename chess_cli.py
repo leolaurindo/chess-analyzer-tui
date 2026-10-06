@@ -15,7 +15,9 @@ import chess.engine
 import chess.pgn
 
 from chess_input import load_input, player_name
-from chess_session import Session, load_session, save_session, session_path
+from chess_game import Analysis
+from chess_online import validate_username
+from chess_session import load_session, save_session, session_path
 from chess_tui import ChessAnalysisApp
 
 
@@ -59,7 +61,7 @@ def missing_engine_message() -> str:
 
 
 async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Game | None,
-                  white_name: str, black_name: str, *, session: Session | None = None) -> None:
+                  white_name: str, black_name: str, *, session: Analysis | None = None) -> None:
     transport, engine = await chess.engine.popen_uci(engine_path)
     try:
         settings = {}
@@ -82,22 +84,20 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
         engine_name = engine.id.get("name") or Path(engine_path).name
         path = session_path()
 
-        def persist(app: ChessAnalysisApp) -> None:
+        def persist(analysis: Analysis) -> None:
             try:
-                save_session(app, path)
+                save_session(analysis, path)
             except OSError as exc:
                 app.notify(f"Could not save analysis: {exc}", severity="warning")
 
         app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
                                game=game, engine_name=engine_name,
                                white_name=white_name, black_name=black_name,
-                               on_session_change=persist)
+                               on_session_change=persist,
+                               open_library=args.library,
+                               browse_provider=args.browse, browse_user=args.user)
         if session is not None:
-            app.root = session.root
-            app.current = session.current
-            app.return_position = session.return_position
-            app.has_pgn = session.root.is_mainline
-            app.flipped = session.flipped
+            app.analysis = session
         await app.run_async()
     finally:
         try:
@@ -119,6 +119,10 @@ def main() -> None:
                         help="Analyze FEN or PGN from the clipboard")
     source.add_argument("-c", "--continue", dest="continue_session", action="store_true",
                         help="Restore the last analysis session")
+    source.add_argument("--library", action="store_true", help="Browse saved local analyses")
+    source.add_argument("--browse", choices=("chess.com", "lichess"), metavar="PROVIDER",
+                        help="Browse public games from chess.com or lichess")
+    parser.add_argument("--user", help="Public username to browse (requires --browse)")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
     parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
     parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
@@ -132,7 +136,23 @@ def main() -> None:
         parser.error("--time must be a positive, finite number")
     if min(args.lines, args.threads, args.hash) < 1:
         parser.error("--lines, --threads and --hash must be positive")
-    session = load_session(session_path()) if args.continue_session else None
+    if args.browse:
+        if args.user is None:
+            parser.error("--browse requires --user NAME")
+        try:
+            args.user = validate_username(args.user)
+        except ValueError as exc:
+            parser.error(str(exc))
+    elif args.user is not None:
+        parser.error("--user requires --browse chess.com or lichess")
+    session = None
+    if args.continue_session or ((args.library or args.browse) and session_path().exists()):
+        try:
+            session = load_session(session_path())
+        except FileNotFoundError as exc:
+            raise SystemExit("No saved analysis found. Start an analysis first.") from exc
+        except (OSError, ValueError, UnicodeError) as exc:
+            raise SystemExit(f"Could not restore saved analysis: {exc}") from exc
     if session is not None:
         board, game = session.root.board, None
         pgn_white, pgn_black = session.white_name, session.black_name
@@ -140,6 +160,8 @@ def main() -> None:
         board, game, pgn_white, pgn_black = load_input(args.input, file=args.file, clipboard=args.clip)
     white_name = player_name(args.white, pgn_white)
     black_name = player_name(args.black, pgn_black)
+    if session is not None:
+        session.white_name, session.black_name = white_name, black_name
     if not board.is_valid():
         raise SystemExit("The starting position is invalid.")
     engine_path = args.engine or find_stockfish()

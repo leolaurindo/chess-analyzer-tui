@@ -4,31 +4,20 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 
 import chess
 from platformdirs import user_state_path
 
-from chess_tui import ChessAnalysisApp, Node
+from chess_game import Analysis, Node
 
 
 def session_path() -> Path:
     return user_state_path("chess-analyzer", appauthor=False) / "session.json"
 
 
-@dataclass
-class Session:
-    root: Node
-    current: Node
-    return_position: Node | None
-    white_name: str
-    black_name: str
-    flipped: bool
-
-
-def save_session(app: ChessAnalysisApp, path: Path) -> None:
-    nodes = [app.root]
+def analysis_to_data(analysis: Analysis) -> dict:
+    nodes = [analysis.root]
     records = []
     for parent_index, parent in enumerate(nodes):
         for child in parent.children.values():
@@ -36,18 +25,21 @@ def save_session(app: ChessAnalysisApp, path: Path) -> None:
             records.append([parent_index, child.move_from_parent.uci(), child.is_mainline,
                             child.imported, child.comment, child.starting_comment])
     indices = {id(node): index for index, node in enumerate(nodes)}
-    data = {
+    return {
         "version": 2,
-        "comment": app.root.comment,
-        "fen": app.root.board.fen(),
-        "has_pgn": app.has_pgn,
+        "comment": analysis.root.comment,
+        "fen": analysis.root.board.fen(),
+        "has_pgn": analysis.has_pgn,
         "nodes": records,
-        "current": indices[id(app.current)],
-        "return": indices[id(app.return_position)] if app.return_position else None,
-        "white": app.white_name,
-        "black": app.black_name,
-        "flipped": app.flipped,
+        "current": indices[id(analysis.current)],
+        "return": indices[id(analysis.return_position)] if analysis.return_position else None,
+        "white": analysis.white_name,
+        "black": analysis.black_name,
+        "flipped": analysis.flipped,
     }
+
+
+def write_json(path: Path, data: dict, *, overwrite: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
@@ -56,15 +48,22 @@ def save_session(app: ChessAnalysisApp, path: Path) -> None:
             temporary = Path(stream.name)
             json.dump(data, stream, ensure_ascii=False, separators=(",", ":"))
         # Close the file before replacing it: required on Windows.
-        os.replace(temporary, path)
+        if overwrite:
+            os.replace(temporary, path)
+        else:
+            # Atomically refuse an existing name, including concurrent saves.
+            os.link(temporary, path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
 
 
-def load_session(path: Path) -> Session:
+def save_session(analysis: Analysis, path: Path) -> None:
+    write_json(path, analysis_to_data(analysis))
+
+
+def analysis_from_data(data: dict) -> Analysis:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
         if data["version"] != 2:
             raise ValueError("unsupported session version")
         if any(type(data[key]) is not bool for key in ("has_pgn", "flipped")):
@@ -116,8 +115,10 @@ def load_session(path: Path) -> Session:
                 ancestor = ancestor.parent
             if anchor is not ancestor:
                 raise ValueError("missing or invalid original-game anchor")
-        return Session(root, current, anchor, data["white"], data["black"], data["flipped"])
-    except FileNotFoundError as exc:
-        raise SystemExit("No saved analysis found. Start an analysis first.") from exc
-    except (OSError, ValueError, TypeError, KeyError, UnicodeError) as exc:
-        raise SystemExit(f"Could not restore saved analysis: {exc}") from exc
+        return Analysis(root, current, anchor, data["white"], data["black"], data["flipped"])
+    except (ValueError, TypeError, KeyError, IndexError) as exc:
+        raise ValueError(f"Invalid analysis snapshot: {exc}") from exc
+
+
+def load_session(path: Path) -> Analysis:
+    return analysis_from_data(json.loads(path.read_text(encoding="utf-8")))
