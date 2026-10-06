@@ -19,7 +19,8 @@ chess-analyzer # opens a new game
 chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
 chess-analyzer --file game.pgn
 chess-analyzer --file position.fen
-chess-analyzer --clip              # or: chess-analyzer -c
+chess-analyzer --clip
+chess-analyzer --continue          # or: chess-analyzer -c
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
 
@@ -33,7 +34,8 @@ Without input, analysis starts from the initial position.
 Options:
 
 - `--file PATH` — load FEN or PGN from a file
-- `--clip` / `-c` — load FEN or PGN from the clipboard
+- `--clip` — load FEN or PGN from the clipboard
+- `--continue` / `-c` — restore the last analysis session
 - `--ascii` — use ASCII pieces
 - `--time 0.5` — set analysis time
 - `--lines 3` — show multiple lines
@@ -42,10 +44,26 @@ Options:
 - `--engine /path/to/engine` — choose a UCI engine executable
 - `--white "Supi"` / `--black "Carlsen"` — label the players (override PGN names)
 
-Copy a FEN position or PGN game and run `chess-analyzer --clip` (or `-c`).
+Copy a FEN position or PGN game and run `chess-analyzer --clip`.
 On Linux, install `wl-clipboard` for Wayland, or `xclip` / `xsel` for X11;
 a graphical session is required. macOS and Windows use their built-in clipboard
 support.
+
+## Continue an analysis
+
+Run `chess-analyzer --continue` (or `-c`) to restore the last game, explored
+branches, current position, player names, and board orientation. Engine analysis
+is recalculated using the current command-line settings.
+
+The session saves automatically as you navigate or flip the board. Starting a
+new analysis replaces the previous session. One small `session.json` file is
+stored locally:
+
+- Linux: `$XDG_STATE_HOME/chess-analyzer`, or `~/.local/state/chess-analyzer`
+- macOS: `~/Library/Application Support/chess-analyzer`
+- Windows: `%LOCALAPPDATA%\\chess-analyzer`
+
+`--continue` cannot be combined with text, `--file`, or `--clip`.
 
 ## Stockfish
 

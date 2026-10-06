@@ -1,0 +1,120 @@
+import asyncio
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import chess
+
+from chess_cli import find_stockfish, main
+from chess_session import load_session, save_session
+from chess_tui import ChessAnalysisApp
+
+
+class SessionTests(unittest.TestCase):
+    def test_fen_history_round_trip_and_failed_write_preserves_previous_session(self):
+        app = ChessAnalysisApp(chess.Board("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"), None, 1, 3)
+        app.current = app.root.child(chess.Move.from_uci("e2e4"))
+        app.flipped = True
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state" / "session.json"
+            save_session(app, path)
+            restored = load_session(path)
+            self.assertEqual(restored.current.board.fen(), "4k3/8/8/8/4P3/8/8/4K3 b - - 0 1")
+            self.assertEqual(restored.current.board.peek().uci(), "e2e4")
+            self.assertFalse(restored.root.is_mainline)
+            self.assertTrue(restored.flipped)
+            self.assertFalse(restored.current.analyzed)
+            previous = path.read_bytes()
+            app.flipped = False
+            with patch("chess_session.os.replace", side_effect=OSError("disk failure")):
+                with self.assertRaises(OSError):
+                    save_session(app, path)
+            self.assertEqual(path.read_bytes(), previous)
+            self.assertEqual(list(path.parent.iterdir()), [path])
+
+    def test_invalid_snapshot_is_rejected_without_overwriting_it(self):
+        app = ChessAnalysisApp(chess.Board(), None, 1, 3)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            save_session(app, path)
+            original = json.loads(path.read_text(encoding="utf-8"))
+            for change in ({"version": 99}, {"current": -1}, {"fen": "bad fen"},
+                           {"nodes": [[0, "e2e5", False]]}, {"nodes": [[4, "e2e4", False]]}):
+                with self.subTest(change=change):
+                    path.write_text(json.dumps(original | change), encoding="utf-8")
+                    previous = path.read_bytes()
+                    with self.assertRaisesRegex(SystemExit, "Could not restore saved analysis"):
+                        load_session(path)
+                    self.assertEqual(path.read_bytes(), previous)
+
+    def test_cli_restores_branches_names_orientation_and_reanalyzes(self):
+        engine = find_stockfish()
+        if engine is None:
+            self.skipTest("Stockfish is required for session integration tests")
+        pgn = '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *'
+        saved_position = None
+
+        async def wait_for_analysis(app, pilot):
+            async def ready():
+                while not app.current.analyzed:
+                    await asyncio.sleep(0.01)
+                await pilot.pause()
+            await asyncio.wait_for(ready(), timeout=4)
+
+        async def explore(app):
+            nonlocal saved_position
+            async with app.run_test() as pilot:
+                await pilot.press("left")
+                await wait_for_analysis(app, pilot)
+                await pilot.press("down", "right", "f")
+                self.assertFalse(app.current.is_mainline)
+                self.assertEqual(app.return_position.board.peek().uci(), "e2e4")
+                saved_position = app.current.board.fen()
+
+        async def resume(app):
+            self.assertFalse(app.current.analyzed)
+            self.assertEqual(app.current.candidates, [])
+            async with app.run_test() as pilot:
+                self.assertEqual(app.current.board.fen(), saved_position)
+                self.assertTrue(app.flipped)
+                self.assertIn("Supi", app.query_one("#top-player").render().plain)
+                self.assertIn("Carlsen", app.query_one("#bottom-player").render().plain)
+                await wait_for_analysis(app, pilot)
+                self.assertTrue(app.current.candidates)
+                await pilot.press("escape")
+                self.assertEqual(app.current.board.peek().uci(), "e2e4")
+                self.assertTrue(any(child.board.fen() == saved_position
+                                    for child in app.current.children.values()))
+                await pilot.press("enter")
+                self.assertEqual(app.current.board.peek().uci(), "h7h5")
+                # Leave the saved session at the explored branch for the next alias.
+                branch = next(child for child in app.current.parent.children.values()
+                              if child.board.fen() == saved_position)
+                app.return_position = app.current.parent
+                app.show_position(branch)
+
+        async def fresh(app):
+            async with app.run_test():
+                self.assertEqual(app.current.board.fen(), chess.STARTING_FEN)
+                self.assertFalse(app.has_pgn)
+                self.assertFalse(app.flipped)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            for source, run in (([pgn], explore), (["-c"], resume),
+                                (["--continue"], resume), ([], fresh)):
+                with (
+                    self.subTest(source=source),
+                    patch("sys.argv", ["chess-analyzer", *source, "--engine", engine,
+                                       "--time", "0.05", "--threads", "1", "--hash", "16"]),
+                    patch("chess_cli.session_path", return_value=path),
+                    patch.object(ChessAnalysisApp, "run_async", run),
+                ):
+                    main()
+                self.assertTrue(path.is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

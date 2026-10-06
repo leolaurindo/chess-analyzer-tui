@@ -14,6 +14,7 @@ version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "chess" },
+    { name = "platformdirs" },
     { name = "pyperclip" },
     { name = "textual" },
 ]
@@ -21,6 +22,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "chess", specifier = ">=1.11.2" },
+    { name = "platformdirs", specifier = ">=4.12.3" },
     { name = "pyperclip", specifier = ">=1.11.0" },
     { name = "textual", specifier = ">=8.2.8" },
 ]
