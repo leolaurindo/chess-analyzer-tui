@@ -163,11 +163,11 @@ class ChessAnalysisApp(App):
                  game: chess.pgn.Game | None = None, engine_name: str = "Engine",
                  white_name: str = "White", black_name: str = "Black",
                  on_session_change: Callable[[Analysis], None] | None = None,
-                 startup_menu: str | None = None,
+                 open_library: bool = False,
                  browse_provider: str | None = None, browse_user: str | None = None):
         super().__init__()
         self.on_session_change = on_session_change
-        self.startup_menu = startup_menu
+        self.open_library = open_library
         self.browse_provider = browse_provider
         self.browse_user = browse_user
         self.engine = engine
@@ -201,9 +201,9 @@ class ChessAnalysisApp(App):
         self.analyze_requested_position()
         self.analysis_loop()
         self.save_session()
-        if self.startup_menu == "library":
+        if self.open_library:
             self.action_open_library()
-        elif self.startup_menu == "browser":
+        elif self.browse_provider:
             self.action_browse_games()
 
     def save_session(self) -> None:
@@ -497,24 +497,16 @@ class ChessAnalysisApp(App):
 
         self.push_screen(SaveAnalysisDialog(self.analysis, title, library_path()), saved)
 
-    def action_open_library(self) -> None:
-        def opened(result: tuple[str, Analysis] | None) -> None:
-            if result is not None:
-                title, analysis = result
-                self.replace_analysis(analysis, title)
-            else:
-                self.refresh_ui()
+    def analysis_selected(self, result: tuple[str, Analysis] | None) -> None:
+        if result is not None:
+            title, analysis = result
+            self.replace_analysis(analysis, title)
+        else:
+            self.refresh_ui()
 
-        self.push_screen(LibraryDialog(library_path()), opened)
+    def action_open_library(self) -> None:
+        self.push_screen(LibraryDialog(library_path()), self.analysis_selected)
 
     def action_browse_games(self) -> None:
-        if not self.browse_provider or not self.browse_user:
-            return
-
-        def opened(analysis: Analysis | None) -> None:
-            if analysis is not None:
-                self.replace_analysis(analysis)
-            else:
-                self.refresh_ui()
-
-        self.push_screen(GameBrowser(self.browse_provider, self.browse_user), opened)
+        if self.browse_provider and self.browse_user:
+            self.push_screen(GameBrowser(self.browse_provider, self.browse_user), self.analysis_selected)

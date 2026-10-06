@@ -8,7 +8,6 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.worker import get_current_worker
 from textual.widgets import Button, Label, OptionList, Static
-from textual.widgets.option_list import Option
 
 from chess_dialogs import AnalysisDialog
 from chess_game import Analysis
@@ -29,10 +28,9 @@ class GameBrowser(AnalysisDialog):
         Binding("up", "choose(-1)", "Choose", priority=True),
         Binding("down", "choose(1)", "Choose", priority=True),
         Binding("enter", "open_selected", "Open", priority=True),
-        Binding("left", "newer", "Newer", priority=True),
-        Binding("right", "older", "Older", priority=True),
-        ("r", "reload", "Reload"),
-        ("escape", "cancel", "Cancel"),
+        Binding("left", "page(-1)", "Newer", priority=True),
+        Binding("right", "page(1)", "Older", priority=True),
+        ("r", "page(0)", "Reload"),
     ]
 
     def __init__(self, provider: str, username: str):
@@ -75,21 +73,15 @@ class GameBrowser(AnalysisDialog):
             options.highlighted = ((options.highlighted or 0) + direction) % len(self.games)
             options.focus()
 
-    @on(Button.Pressed, "#reload")
-    def action_reload(self) -> None:
-        if not self.busy:
-            self.load_games(self.page_index)
+    @on(Button.Pressed)
+    def page_clicked(self, event: Button.Pressed) -> None:
+        self.action_page({"newer": -1, "older": 1, "reload": 0}[event.button.id])
 
-    @on(Button.Pressed, "#older")
-    def action_older(self) -> None:
+    def action_page(self, offset: int) -> None:
         pages = self.months if self.provider == "chess.com" else self.cursors
-        if not self.busy and self.page_index + 1 < len(pages):
-            self.load_games(self.page_index + 1)
-
-    @on(Button.Pressed, "#newer")
-    def action_newer(self) -> None:
-        if not self.busy and self.page_index > 0:
-            self.load_games(self.page_index - 1)
+        index = self.page_index + offset
+        if not self.busy and 0 <= index < max(1, len(pages)):
+            self.load_games(index)
 
     @work(group="online", exclusive=True)
     async def load_games(self, index: int = 0) -> None:
@@ -117,12 +109,11 @@ class GameBrowser(AnalysisDialog):
                 if page.until is not None:
                     self.cursors.append(page.until)
                 heading = f"Page {index + 1}"
-            options.add_options(Option(Text(game.label), id=str(number))
-                                for number, game in enumerate(self.games))
+            options.add_options(Text(game.label) for game in self.games)
             options.highlighted = 0 if self.games else None
             status.update(f"{heading} · {len(self.games)} completed standard games" if self.games
                           else f"{heading} · No completed standard games. → tries older games.")
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as exc:
+        except (OSError, ValueError) as exc:
             status.update(Text(f"Could not list games: {exc} · r retries"))
         finally:
             if self.is_mounted and not get_current_worker().is_cancelled:
@@ -130,15 +121,11 @@ class GameBrowser(AnalysisDialog):
         if self.is_mounted:
             options.focus()
 
-    def action_open_selected(self) -> None:
-        selected = self.query_one("#games", OptionList).highlighted
+    @on(OptionList.OptionSelected, "#games")
+    def action_open_selected(self, event: OptionList.OptionSelected | None = None) -> None:
+        selected = event.option_index if event else self.query_one("#games", OptionList).highlighted
         if not self.busy and selected is not None:
             self.open_game(self.games[selected])
-
-    @on(OptionList.OptionSelected, "#games")
-    def game_selected(self, event: OptionList.OptionSelected) -> None:
-        if not self.busy:
-            self.open_game(self.games[int(event.option.id)])
 
     @work(group="online", exclusive=True)
     async def open_game(self, game: OnlineGame) -> None:
@@ -156,4 +143,4 @@ class GameBrowser(AnalysisDialog):
             self.set_busy(False)
             self.query_one("#games", OptionList).focus()
         else:
-            self.dismiss(analysis)
+            self.dismiss(("", analysis))

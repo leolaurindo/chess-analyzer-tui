@@ -94,7 +94,7 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
                                game=game, engine_name=engine_name,
                                white_name=white_name, black_name=black_name,
                                on_session_change=persist,
-                               startup_menu="library" if args.library else "browser" if args.browse else None,
+                               open_library=args.library,
                                browse_provider=args.browse, browse_user=args.user)
         if session is not None:
             app.analysis = session

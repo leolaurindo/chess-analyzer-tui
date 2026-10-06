@@ -8,18 +8,20 @@ from unittest.mock import patch
 import chess
 
 from chess_cli import find_stockfish, main
+from chess_game import Analysis
 from chess_session import load_session, save_session
 from chess_tui import ChessAnalysisApp
 
 
 class SessionTests(unittest.TestCase):
     def test_fen_history_round_trip_and_failed_write_preserves_previous_session(self):
-        app = ChessAnalysisApp(chess.Board("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"), None, 1, 3)
-        app.analysis.current = app.analysis.root.child(chess.Move.from_uci("e2e4"))
-        app.analysis.flipped = True
+        analysis = Analysis.from_input(chess.Board("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"))
+        analysis.current = analysis.root.child(chess.Move.from_uci("e2e4"))
+        analysis.current.analyzed = True
+        analysis.flipped = True
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state" / "session.json"
-            save_session(app.analysis, path)
+            save_session(analysis, path)
             restored = load_session(path)
             self.assertEqual(restored.current.board.fen(), "4k3/8/8/8/4P3/8/8/4K3 b - - 0 1")
             self.assertEqual(restored.current.board.peek().uci(), "e2e4")
@@ -27,18 +29,18 @@ class SessionTests(unittest.TestCase):
             self.assertTrue(restored.flipped)
             self.assertFalse(restored.current.analyzed)
             previous = path.read_bytes()
-            app.analysis.flipped = False
+            analysis.flipped = False
             with patch("chess_session.os.replace", side_effect=OSError("disk failure")):
                 with self.assertRaises(OSError):
-                    save_session(app.analysis, path)
+                    save_session(analysis, path)
             self.assertEqual(path.read_bytes(), previous)
             self.assertEqual(list(path.parent.iterdir()), [path])
 
     def test_invalid_snapshot_is_rejected_without_overwriting_it(self):
-        app = ChessAnalysisApp(chess.Board(), None, 1, 3)
+        analysis = Analysis.from_input(chess.Board())
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.json"
-            save_session(app.analysis, path)
+            save_session(analysis, path)
             original = json.loads(path.read_text(encoding="utf-8"))
             for change in ({"version": 99}, {"current": -1}, {"fen": "bad fen"},
                            {"nodes": [[0, "e2e5", False, False, "", ""]]},

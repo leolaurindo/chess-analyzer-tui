@@ -1,6 +1,5 @@
 import contextlib
 import io
-import json
 import tempfile
 import unittest
 from itertools import product
@@ -12,6 +11,7 @@ import pyperclip
 
 from chess_cli import main
 from chess_game import Analysis
+from chess_input import parse_input
 from chess_session import save_session
 
 
@@ -129,15 +129,12 @@ class CliTests(unittest.TestCase):
 
     def test_chesscom_url_needs_no_extra_flags_and_browse_needs_no_link(self):
         url = "https://www.chess.com/game/live/4912555148"
-        callback = json.dumps({"game": {"pgnHeaders": {
-            "Date": "2020.05.27", "White": "LPSupi", "Black": "MenuGarden"}}})
-        pgn = ('[White "LPSupi"]\n[Black "MenuGarden"]\n'
-               '[Link "https://www.chess.com/game/live/4912555148"]\n\n1. e4 d5 *')
+        loaded = parse_input('[White "LPSupi"]\n[Black "MenuGarden"]\n\n1. e4 d5 *')
         with (patch("sys.argv", ["chess-analyzer", url, "--engine", "stockfish"]),
-              patch("chess_online._validate_url"),
-              patch("chess_online.fetch_text", side_effect=[callback, pgn]),
+              patch("chess_cli.load_input", return_value=loaded) as load,
               patch("chess_cli.run_app", new_callable=AsyncMock) as run):
             main()
+        load.assert_called_once_with(url, file=None, clipboard=False)
         self.assertEqual(run.call_args.args[4:], ("LPSupi", "MenuGarden"))
         self.assertEqual([move.uci() for move in run.call_args.args[3].mainline_moves()],
                          ["e2e4", "d7d5"])

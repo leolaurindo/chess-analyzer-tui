@@ -134,19 +134,11 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                         self.assertLessEqual(abs(colors.count("#f0f0e8") -
                                                  colors.count("#30343b")), 1)
 
-    async def test_local_dialog_controls_fit_minimum_terminal(self):
-        app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3)
-        with tempfile.TemporaryDirectory() as directory:
-            with patch("chess_tui.library_path", return_value=Path(directory)):
-                async with app.run_test(size=(40, 24)) as pilot:
-                    for key in ("c", "s", "l"):
-                        await pilot.press(key)
-                        selectors = ("#analyses",) if key == "l" else ("#save", "#cancel")
-                        for selector in selectors:
-                            region = app.screen.query_one(selector).region
-                            self.assertTrue(0 <= region.x < region.right <= 40)
-                            self.assertTrue(0 <= region.y < region.bottom <= 24)
-                        await pilot.press("escape")
+    def assert_dialog_fits(self, app, selectors=("#save", "#cancel")):
+        for selector in selectors:
+            region = app.screen.query_one(selector).region
+            self.assertTrue(0 <= region.x < region.right <= 40, selector)
+            self.assertTrue(0 <= region.y < region.bottom <= 24, selector)
 
     async def test_edit_save_and_reopen_analysis_without_navigation_keys_leaking(self):
         board, game, white, black = parse_input('1. e4 {Imported} e5 *')
@@ -157,9 +149,10 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                                    white_name=white, black_name=black,
                                    on_session_change=lambda state: save_session(state, session))
             with patch("chess_tui.library_path", return_value=folder):
-                async with app.run_test() as pilot:
+                async with app.run_test(size=(40, 24)) as pilot:
                     node = app.analysis.current
                     await pilot.press("c")
+                    self.assert_dialog_fits(app)
                     editor = app.screen.query_one(TextArea)
                     editor.load_text("My [literal] comment")
                     await pilot.press("left", "q")
@@ -168,11 +161,16 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press("ctrl+s")
                     self.assertEqual(node.comment, "My [literal] comment")
                     self.assertEqual(load_session(session).current.comment, node.comment)
-                    await pilot.press("c")
-                    app.screen.query_one(TextArea).load_text("Canceled edit")
-                    await pilot.press("escape")
-                    self.assertEqual(node.comment, "My [literal] comment")
+                    for cancel in ("escape", "button"):
+                        await pilot.press("c")
+                        app.screen.query_one(TextArea).load_text("Canceled edit")
+                        if cancel == "escape":
+                            await pilot.press("escape")
+                        else:
+                            await pilot.click("#cancel")
+                        self.assertEqual(node.comment, "My [literal] comment")
                     await pilot.press("s")
+                    self.assert_dialog_fits(app)
                     app.screen.query_one(Input).value = "Tal notes"
                     await pilot.click("#save")
                     entries, _ = list_analyses(folder)
@@ -189,6 +187,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(app.analysis.current.comment, "")
                     await pilot.press("l")
                     await pilot.pause()
+                    self.assert_dialog_fits(app, ("#analyses",))
                     await pilot.press("enter")
                     self.assertEqual(app.analysis.current.comment, "Replacement")
                     self.assertEqual(load_session(session).current.comment, "Replacement")

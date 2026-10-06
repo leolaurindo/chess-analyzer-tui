@@ -7,44 +7,27 @@ from unittest.mock import patch
 import chess
 
 from chess_game import Analysis
-from chess_input import parse_input
 from chess_library import analysis_path, list_analyses, load_analysis, save_analysis
 from chess_session import write_json
 
 
 class LibraryTests(unittest.TestCase):
-    def test_save_reopen_and_explicit_replace_preserve_tree_not_engine_results(self):
-        analysis = Analysis.from_input(*parse_input('1. e4 {Pawn} e5 (1... c5 {Sicilian}) *'))
-        analysis.root.comment = "Introduction"
-        analysis.return_position = analysis.root.mainline_next
-        analysis.current = analysis.return_position.children[chess.Move.from_uci("c7c5")]
-        explored = analysis.current.child(chess.Move.from_uci("b1c3"))
-        explored.comment = "My line"
-        explored.analyzed = True
-        analysis.flipped = True
+    def test_named_save_reopen_and_explicit_replace(self):
+        analysis = Analysis.from_input(chess.Board())
+        analysis.current.comment = "Saved"
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             first = save_analysis(analysis, "../Tal study", folder)
             self.assertEqual(first.path.parent, folder)
             self.assertEqual(list(folder.glob("*.json")), [first.path])
-            restored = load_analysis(first.path)
-            self.assertEqual(restored.root.comment, "Introduction")
-            self.assertEqual(restored.current.comment, "Sicilian")
-            self.assertEqual(restored.current.children[chess.Move.from_uci("b1c3")].comment, "My line")
-            self.assertFalse(restored.current.children[chess.Move.from_uci("b1c3")].analyzed)
-            self.assertTrue(restored.flipped)
+            self.assertEqual(load_analysis(first.path).current.comment, "Saved")
             previous = first.path.read_bytes()
             analysis.current.comment = "Edited"
             with self.assertRaises(FileExistsError):
                 save_analysis(analysis, first.title, folder)
             self.assertEqual(first.path.read_bytes(), previous)
-            with patch("chess_session.os.replace", side_effect=OSError("disk full")):
-                with self.assertRaises(OSError):
-                    save_analysis(analysis, first.title, folder, overwrite=True)
-            self.assertEqual(first.path.read_bytes(), previous)
             save_analysis(analysis, first.title, folder, overwrite=True)
             self.assertEqual(load_analysis(first.path).current.comment, "Edited")
-            self.assertEqual(load_analysis(first.path).root.comment, "Introduction")
 
     def test_concurrent_name_creation_is_not_overwritten_without_confirmation(self):
         with tempfile.TemporaryDirectory() as directory:

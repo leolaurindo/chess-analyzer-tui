@@ -7,7 +7,6 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, OptionList, Static, TextArea
-from textual.widgets.option_list import Option
 
 from chess_game import Analysis
 from chess_library import SavedAnalysis, list_analyses, load_analysis, save_analysis
@@ -29,12 +28,13 @@ class AnalysisDialog(ModalScreen):
     """
     BINDINGS = [("escape", "cancel", "Cancel")]
 
+    @on(Button.Pressed, "#cancel")
     def action_cancel(self) -> None:
         self.dismiss(None)
 
 
 class CommentEditor(AnalysisDialog):
-    BINDINGS = [("escape", "cancel", "Cancel"), ("ctrl+s", "save", "Save")]
+    BINDINGS = [("ctrl+s", "save", "Save")]
 
     def __init__(self, comment: str):
         super().__init__()
@@ -55,13 +55,9 @@ class CommentEditor(AnalysisDialog):
     def action_save(self) -> None:
         self.dismiss(self.query_one(TextArea).text)
 
-    @on(Button.Pressed, "#cancel")
-    def cancel_clicked(self) -> None:
-        self.action_cancel()
-
 
 class SaveAnalysisDialog(AnalysisDialog):
-    BINDINGS = [("escape", "cancel", "Cancel"), ("ctrl+s", "save", "Save")]
+    BINDINGS = [("ctrl+s", "save", "Save")]
 
     def __init__(self, analysis: Analysis, title: str, directory: Path):
         super().__init__()
@@ -88,10 +84,6 @@ class SaveAnalysisDialog(AnalysisDialog):
         else:
             self.dismiss(entry)
 
-    @on(Button.Pressed, "#cancel")
-    def cancel_clicked(self) -> None:
-        self.action_cancel()
-
 
 class LibraryDialog(AnalysisDialog):
     def __init__(self, directory: Path):
@@ -112,8 +104,7 @@ class LibraryDialog(AnalysisDialog):
             self.query_one("#error", Static).update(Text(str(exc)))
             return
         options = self.query_one(OptionList)
-        options.add_options(Option(Text(entry.title), id=str(index))
-                            for index, entry in enumerate(self.entries))
+        options.add_options(Text(entry.title) for entry in self.entries)
         options.highlighted = 0 if self.entries else None
         options.focus()
         message = "\n".join(warnings)
@@ -123,7 +114,7 @@ class LibraryDialog(AnalysisDialog):
 
     @on(OptionList.OptionSelected)
     def open_selected(self, event: OptionList.OptionSelected) -> None:
-        entry = self.entries[int(event.option.id)]
+        entry = self.entries[event.option_index]
         try:
             analysis = load_analysis(entry.path)
         except (OSError, ValueError, UnicodeError) as exc:
