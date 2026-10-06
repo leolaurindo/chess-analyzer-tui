@@ -53,6 +53,8 @@ class Analysis:
     @classmethod
     def from_input(cls, board: chess.Board, game: chess.pgn.Game | None = None,
                    white_name: str = "White", black_name: str = "Black") -> Analysis:
+        if not board.is_valid():
+            raise ValueError("The starting position is invalid.")
         root = Node(board.copy(), is_mainline=game is not None)
         if game is not None:
             pending = [(root, game)]

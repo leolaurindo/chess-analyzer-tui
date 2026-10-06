@@ -124,12 +124,16 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=2, help="Engine threads (if supported)")
     parser.add_argument("--hash", type=int, default=256, help="Engine hash size in MB (if supported)")
     parser.add_argument("--engine", help="Path to a UCI engine executable (default: Stockfish)")
+    parser.add_argument("--chesscom-user", help="Archive username for a Chess.com game URL")
+    parser.add_argument("--chesscom-month", help="Archive month (YYYY-MM) for a Chess.com game URL")
     parser.add_argument("--ascii", action="store_true", help="Use letters instead of chess glyphs")
     args = parser.parse_args()
     if not math.isfinite(args.time) or args.time <= 0:
         parser.error("--time must be a positive, finite number")
     if min(args.lines, args.threads, args.hash) < 1:
         parser.error("--lines, --threads and --hash must be positive")
+    if bool(args.chesscom_user) != bool(args.chesscom_month):
+        parser.error("--chesscom-user and --chesscom-month must be used together")
     session = None
     if args.continue_session or (args.library and session_path().exists()):
         try:
@@ -142,7 +146,10 @@ def main() -> None:
         board, game = session.root.board, None
         pgn_white, pgn_black = session.white_name, session.black_name
     else:
-        board, game, pgn_white, pgn_black = load_input(args.input, file=args.file, clipboard=args.clip)
+        board, game, pgn_white, pgn_black = load_input(
+            args.input, file=args.file, clipboard=args.clip,
+            chesscom_user=args.chesscom_user, chesscom_month=args.chesscom_month,
+        )
     white_name = player_name(args.white, pgn_white)
     black_name = player_name(args.black, pgn_black)
     if session is not None:

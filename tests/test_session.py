@@ -100,7 +100,8 @@ class SessionTests(unittest.TestCase):
                     self.subTest(source=source),
                     patch("sys.argv", ["chess-analyzer", *source, "--engine", engine,
                                        "--time", "0.05", "--threads", "1", "--hash", "16"]),
-                    patch("chess_input._fetch_text", return_value=pgn),
+                    patch("chess_online._validate_url"),
+                    patch("chess_online.fetch_text", return_value=pgn),
                     patch("chess_cli.session_path", return_value=path),
                     patch.object(ChessAnalysisApp, "run_async", run),
                 ):
