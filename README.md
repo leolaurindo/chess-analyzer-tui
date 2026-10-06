@@ -19,6 +19,9 @@ separate PyPI package):
 uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
 chess-analyzer # opens a new game
 chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
+chess-analyzer https://lichess.org/nrmBGiQF
+chess-analyzer https://lichess.org/study/r072zv4F/R33cxdop
+chess-analyzer https://www.chess.com/game/live/4912555148
 chess-analyzer --file game.pgn
 chess-analyzer --file position.fen
 chess-analyzer --clip
@@ -29,9 +32,14 @@ chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2
 The command works from any directory. If it isn't on PATH, use
 `uv tool update-shell` (or `pipx ensurepath`) and restart your shell.
 
-Pass quoted FEN or PGN text, use `--file` to read a UTF-8 file, or `--clip` to read
-the clipboard. Choose one input source; the format is detected from its contents.
-Without input, analysis starts from the initial position.
+Pass quoted FEN or PGN text, a Chess.com game URL, a Lichess game or study URL, or
+an HTTPS URL that serves plain-text PGN. The examples include a Lichess study of
+Mikhail Tal and a regular Lichess game by Magnus Carlsen, plus a public Chess.com
+game by GM LPSupi. Use `--file`
+to read a UTF-8 file or `--clip` to read the clipboard. Choose one input source;
+the format is detected automatically. URL loads
+are limited to public HTTPS hosts, 4 MiB, and a 10-second request timeout. Without
+input, analysis starts from the initial position.
 
 Options:
 
