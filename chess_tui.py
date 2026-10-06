@@ -88,7 +88,7 @@ def missing_engine_message() -> str:
         f"OS detection: {label}\n"
         f"Suggested Stockfish installation: {suggestion}\n"
         "After installation, make sure Stockfish is on PATH; restart your shell if needed.\n"
-        f"Or pass your engine: chess-analyzer --engine {executable}"
+        f"Or pass any UCI engine: chess-analyzer --engine {executable}"
     )
 
 
@@ -176,7 +176,7 @@ class ChessBoard(Widget):
 
 
 class ChessAnalysisApp(App):
-    TITLE = "Stockfish Analysis"
+    TITLE = "Chess Analysis"
     CSS = """
     Widget { link-style: none; link-style-hover: none; }
     Screen { background: #0d1117; color: #e6edf3; }
@@ -218,12 +218,13 @@ class ChessAnalysisApp(App):
 
     def __init__(self, board: chess.Board, engine: chess.engine.UciProtocol,
                  think_time: float, multipv: int, ascii_pieces: bool = False,
-                 moves: list[chess.Move] | None = None):
+                 moves: list[chess.Move] | None = None, engine_name: str = "Engine"):
         super().__init__()
         self.engine = engine
         self.think_time = think_time
         self.multipv = multipv
         self.ascii_pieces = ascii_pieces
+        self.engine_name = engine_name
         self.has_pgn = moves is not None
         self.root = Node(board.copy(), is_mainline=self.has_pgn)
         self.current = self.root
@@ -298,7 +299,7 @@ class ChessAnalysisApp(App):
         board = node.board
         candidates = {c.move: c for c in node.candidates}
         self.query_one("#engine-title", Static).update(
-            Text(f"Stockfish   {self.think_time:g}s / {self.multipv} lines", style="bold")
+            Text(f"{self.engine_name}   {self.think_time:g}s / {self.multipv} lines", style="bold")
         )
         return_link = self.query_one("#return-game", Static)
         return_link.display = self.return_position is not None
@@ -311,7 +312,7 @@ class ChessAnalysisApp(App):
             original = node.is_mainline and index == 0
             candidate = candidates.get(move)
             san = board.san(move) if move else "End of original game"
-            label = "Original" if original else "Stockfish"
+            label = "Original" if original else "Engine"
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
                 row += f"  {candidate.score}"
@@ -324,12 +325,12 @@ class ChessAnalysisApp(App):
             lines.append(f"Game over: {board.result()}\n", style="dim")
         elif not node.candidates:
             lines.append("No engine lines. Press r to retry." if node.analyzed
-                         else "Stockfish is thinking…", style="dim")
+                         else "Engine is thinking…", style="dim")
         self.query_one("#candidates", Static).update(lines)
         candidate = candidates.get(selected_move)
         pv = Text()
         if selected_move is None and not board.is_game_over():
-            pv.append("↑/↓ choose a Stockfish move to keep exploring.", style="dim")
+            pv.append("↑/↓ choose an engine move to keep exploring.", style="dim")
         elif candidate:
             pv.append("Selected continuation\n\n", style="bold")
             pv.append(candidate.pv)
@@ -369,11 +370,11 @@ class ChessAnalysisApp(App):
     def set_status(self, message: str, style: str = "dim") -> None:
         self.query_one("#status", Static).update(Text(message, style=style))
 
-    @work(exclusive=True, group="stockfish")
+    @work(exclusive=True, group="engine")
     async def analyze_node(self, node: Node) -> None:
         if node.analyzed or node.board.is_game_over():
             return
-        self.set_status("Stockfish is thinking…", "yellow")
+        self.set_status("Engine is thinking…", "yellow")
         try:
             result = await self.engine.analyse(
                 node.board.copy(), chess.engine.Limit(time=self.think_time), multipv=self.multipv,
@@ -428,7 +429,7 @@ class ChessAnalysisApp(App):
         self.show_position(node)
 
     def show_position(self, node: Node) -> None:
-        self.workers.cancel_group(self, "stockfish")
+        self.workers.cancel_group(self, "engine")
         self.current = node
         self.refresh_bindings()
         self.set_status("Analysis ready." if node.analyzed else "")
@@ -462,9 +463,26 @@ class ChessAnalysisApp(App):
 async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.Move]) -> None:
     transport, engine = await chess.engine.popen_uci(engine_path)
     try:
-        await engine.configure({"Threads": args.threads, "Hash": args.hash})
-        app = ChessAnalysisApp(board, engine, args.time, args.lines, args.ascii,
-                               moves=moves if args.pgn else None)
+        settings = {}
+        for name, value in {"Threads": args.threads, "Hash": args.hash}.items():
+            option = engine.options.get(name)
+            if option and option.type == "spin":
+                if option.min is not None:
+                    value = max(value, option.min)
+                if option.max is not None:
+                    value = min(value, option.max)
+                settings[name] = value
+        await engine.configure(settings)
+        multipv_option = engine.options.get("MultiPV")
+        multipv = args.lines if multipv_option else 1
+        if multipv_option:
+            if multipv_option.min is not None:
+                multipv = max(multipv, multipv_option.min)
+            if multipv_option.max is not None:
+                multipv = min(multipv, multipv_option.max)
+        engine_name = engine.id.get("name") or Path(engine_path).name
+        app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
+                               moves=moves if args.pgn else None, engine_name=engine_name)
         await app.run_async()
     finally:
         try:
@@ -488,15 +506,15 @@ def load_pgn(path: str) -> tuple[chess.Board, list[chess.Move]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="chess-analyzer", description="Interactive Stockfish terminal analyzer.",
+        prog="chess-analyzer", description="Interactive UCI chess engine analyzer.",
     )
     parser.add_argument("fen", nargs="?", help="FEN position (mutually exclusive with --pgn)")
     parser.add_argument("--pgn", help="PGN file to analyze from its final position")
     parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
     parser.add_argument("-n", "--lines", type=int, default=5, help="Number of engine continuations")
-    parser.add_argument("--threads", type=int, default=2, help="Stockfish threads")
-    parser.add_argument("--hash", type=int, default=256, help="Stockfish hash size in MB")
-    parser.add_argument("--engine", help="Path to Stockfish executable")
+    parser.add_argument("--threads", type=int, default=2, help="Engine threads (if supported)")
+    parser.add_argument("--hash", type=int, default=256, help="Engine hash size in MB (if supported)")
+    parser.add_argument("--engine", help="Path to a UCI engine executable (default: Stockfish)")
     parser.add_argument("--ascii", action="store_true", help="Use letters instead of chess glyphs")
     args = parser.parse_args()
     if not math.isfinite(args.time) or args.time <= 0:
@@ -521,7 +539,7 @@ def main() -> None:
     try:
         asyncio.run(run_app(args, board, engine_path, moves))
     except (OSError, chess.engine.EngineError, asyncio.TimeoutError) as exc:
-        raise SystemExit(f"Stockfish error: {exc}") from exc
+        raise SystemExit(f"Engine error: {exc}") from exc
 
 
 if __name__ == "__main__":
