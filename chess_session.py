@@ -39,7 +39,7 @@ def analysis_to_data(analysis: Analysis) -> dict:
     }
 
 
-def write_json(path: Path, data: dict) -> None:
+def write_json(path: Path, data: dict, *, overwrite: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
@@ -48,7 +48,11 @@ def write_json(path: Path, data: dict) -> None:
             temporary = Path(stream.name)
             json.dump(data, stream, ensure_ascii=False, separators=(",", ":"))
         # Close the file before replacing it: required on Windows.
-        os.replace(temporary, path)
+        if overwrite:
+            os.replace(temporary, path)
+        else:
+            # Atomically refuse an existing name, including concurrent saves.
+            os.link(temporary, path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

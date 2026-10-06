@@ -8,7 +8,8 @@ import chess
 
 from chess_game import Analysis
 from chess_input import parse_input
-from chess_library import list_analyses, load_analysis, save_analysis
+from chess_library import analysis_path, list_analyses, load_analysis, save_analysis
+from chess_session import write_json
 
 
 class LibraryTests(unittest.TestCase):
@@ -44,6 +45,22 @@ class LibraryTests(unittest.TestCase):
             save_analysis(analysis, first.title, folder, overwrite=True)
             self.assertEqual(load_analysis(first.path).current.comment, "Edited")
             self.assertEqual(load_analysis(first.path).root.comment, "Introduction")
+
+    def test_concurrent_name_creation_is_not_overwritten_without_confirmation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            path = analysis_path(folder, "Race")
+            previous = b"Another process's saved data"
+
+            def competing_save(path, data, **kwargs):
+                path.write_bytes(previous)
+                write_json(path, data, **kwargs)
+
+            with patch("chess_library.write_json", side_effect=competing_save):
+                with self.assertRaises(FileExistsError):
+                    save_analysis(Analysis.from_input(chess.Board()), "Race", folder)
+            self.assertEqual(path.read_bytes(), previous)
+            self.assertEqual(list(folder.iterdir()), [path])
 
     def test_empty_library_bad_files_and_invalid_names_do_not_lose_good_entries(self):
         with tempfile.TemporaryDirectory() as directory:

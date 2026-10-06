@@ -34,10 +34,11 @@ def analysis_path(directory: Path, title: str) -> Path:
 def save_analysis(analysis: Analysis, title: str, directory: Path, *,
                   overwrite: bool = False) -> SavedAnalysis:
     path = analysis_path(directory, title)
-    if path.exists() and not overwrite:
-        raise FileExistsError("That name already exists. Enable replacement to overwrite it.")
     title = title.strip()
-    write_json(path, {"title": title, "analysis": analysis_to_data(analysis)})
+    try:
+        write_json(path, {"title": title, "analysis": analysis_to_data(analysis)}, overwrite=overwrite)
+    except FileExistsError as exc:
+        raise FileExistsError("That name already exists. Enable replacement to overwrite it.") from exc
     return SavedAnalysis(title, path, path.stat().st_mtime)
 
 

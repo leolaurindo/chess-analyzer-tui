@@ -22,7 +22,7 @@ class AnalysisDialog(ModalScreen):
     }
     AnalysisDialog Label { margin-bottom: 1; }
     AnalysisDialog Horizontal { height: auto; margin-top: 1; }
-    AnalysisDialog Button { margin-right: 1; }
+    AnalysisDialog Button { min-width: 0; width: 1fr; margin-right: 1; }
     AnalysisDialog #error { color: $error; height: auto; }
     AnalysisDialog OptionList { height: 1fr; min-height: 4; max-height: 18; }
     AnalysisDialog TextArea { height: 10; }

@@ -134,6 +134,20 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                         self.assertLessEqual(abs(colors.count("#f0f0e8") -
                                                  colors.count("#30343b")), 1)
 
+    async def test_local_dialog_controls_fit_minimum_terminal(self):
+        app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("chess_tui.library_path", return_value=Path(directory)):
+                async with app.run_test(size=(40, 24)) as pilot:
+                    for key in ("c", "s", "l"):
+                        await pilot.press(key)
+                        selectors = ("#analyses",) if key == "l" else ("#save", "#cancel")
+                        for selector in selectors:
+                            region = app.screen.query_one(selector).region
+                            self.assertTrue(0 <= region.x < region.right <= 40)
+                            self.assertTrue(0 <= region.y < region.bottom <= 24)
+                        await pilot.press("escape")
+
     async def test_edit_save_and_reopen_analysis_without_navigation_keys_leaking(self):
         board, game, white, black = parse_input('1. e4 {Imported} e5 *')
         with tempfile.TemporaryDirectory() as directory:
