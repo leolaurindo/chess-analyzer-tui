@@ -2,6 +2,7 @@ import contextlib
 import io
 import tempfile
 import unittest
+from itertools import product
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -21,21 +22,22 @@ class CliTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "position.txt"
-            for contents, expected_fen, expected_moves, names in cases:
+            for case, source in product(cases, ("text", "file", "--clip", "-c")):
+                contents, expected_fen, expected_moves, names = case
                 path.write_text(contents, encoding="utf-8-sig")
-                for source in ([contents], ["--file", str(path)], ["--clip"], ["-c"]):
-                    with (
-                        self.subTest(source=source, contents=contents),
-                        patch("sys.argv", ["chess-analyzer", *source, "--engine", "stockfish"]),
-                        patch("pyperclip.paste", return_value=contents),
-                        patch("chess_cli.run_app", new_callable=AsyncMock) as run,
-                    ):
-                        main()
-                        args, board, engine, moves, white, black = run.call_args.args
-                        self.assertEqual(board.fen(), expected_fen)
-                        self.assertEqual(None if moves is None else [move.uci() for move in moves],
-                                         expected_moves)
-                        self.assertEqual((white, black), names)
+                argv = {"text": [contents], "file": ["--file", str(path)]}.get(source, [source])
+                with (
+                    self.subTest(source=source, contents=contents),
+                    patch("sys.argv", ["chess-analyzer", *argv, "--engine", "stockfish"]),
+                    patch("pyperclip.paste", return_value=contents),
+                    patch("chess_cli.run_app", new_callable=AsyncMock) as run,
+                ):
+                    main()
+                    _, board, _, moves, white, black = run.call_args.args
+                    actual_moves = None if moves is None else [move.uci() for move in moves]
+                    self.assertEqual(board.fen(), expected_fen)
+                    self.assertEqual(actual_moves, expected_moves)
+                    self.assertEqual((white, black), names)
 
     def test_clipboard_is_not_read_without_opt_in(self):
         with (
@@ -109,21 +111,19 @@ class CliTests(unittest.TestCase):
             ("FreeBSD", {}, "FreeBSD", "https://stockfishchess.org/download/"),
         ]
         for system, release, label, suggestion in cases:
-            with self.subTest(system=system, release=release):
-                with (
-                    patch("sys.argv", ["chess-analyzer"]),
-                    patch("chess_cli.find_stockfish", return_value=None),
-                    patch("platform.system", return_value=system),
-                    patch("platform.freedesktop_os_release", side_effect=[release]),
-                    self.assertRaises(SystemExit) as error,
-                ):
-                    main()
-                message = str(error.exception)
-                self.assertIn("No engine detected", message)
-                self.assertIn(f"OS detection: {label}", message)
-                self.assertIn(suggestion, message)
-                self.assertIn("make sure Stockfish is on PATH", message)
-                self.assertIn("chess-analyzer --engine", message)
+            with (
+                self.subTest(system=system, release=release),
+                patch("sys.argv", ["chess-analyzer"]),
+                patch("chess_cli.find_stockfish", return_value=None),
+                patch("platform.system", return_value=system),
+                patch("platform.freedesktop_os_release", side_effect=[release]),
+                self.assertRaises(SystemExit) as error,
+            ):
+                main()
+            message = str(error.exception)
+            for expected in ("No engine detected", f"OS detection: {label}", suggestion,
+                             "make sure Stockfish is on PATH", "chess-analyzer --engine"):
+                self.assertIn(expected, message)
 
 
 if __name__ == "__main__":
