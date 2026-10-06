@@ -10,7 +10,8 @@ Full renderer credits and license information are below.
 Requires Python 3.11+.
 
 Once published on PyPI, install the `chess-analyzer-tui` package with either tool
-manager. Both install the `chess-analyzer` command:
+manager. Both install the `chess-analyzer` command (the command name is not a
+separate PyPI package):
 
 ```sh
 uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
@@ -86,7 +87,8 @@ The piece artwork and size-adaptive rendering approach are adapted from
 [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui), using its
 [piece designs](https://github.com/thomas-mauran/chess-tui/tree/fc1d4841532bf72f5a25c5cb45abe82ec25e056b/src/pieces).
 The artwork is used under the MIT License; the full notice is preserved in
-[licenses/chess-tui-MIT.txt](licenses/chess-tui-MIT.txt).
+[licenses/chess-tui-MIT.txt](licenses/chess-tui-MIT.txt). The rest of this project
+is released under [MIT](LICENSE).
 
 ## Verify
 

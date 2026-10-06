@@ -1,0 +1,48 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v9
+        with:
+          python-version: "3.11"
+      - name: Check release version
+        run: uv run --python 3.11 --no-project python -c 'import os, tomllib; version = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]; assert os.environ["GITHUB_REF_NAME"] == "v" + version, "tag and project version differ"'
+      - name: Install Stockfish and run tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stockfish
+          uv run --python 3.11 --locked python -m unittest discover -s tests -v
+      - name: Build distributions
+        run: uv build --no-sources
+      - name: Check installed command
+        run: uv tool run --from dist/chess_analyzer_tui-*.whl chess-analyzer --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: astral-sh/setup-uv@v9
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+      - run: uv publish --trusted-publishing always

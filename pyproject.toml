@@ -7,12 +7,24 @@ name = "chess-analyzer-tui"
 version = "0.1.0"
 description = "Terminal chess analysis TUI with Stockfish."
 readme = "README.md"
-license-files = ["licenses/chess-tui-MIT.txt"]
+license = "MIT"
+license-files = ["LICENSE", "licenses/chess-tui-MIT.txt"]
+keywords = ["chess", "stockfish", "terminal", "tui", "analysis"]
+classifiers = [
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Topic :: Games/Entertainment :: Board Games",
+]
 requires-python = ">=3.11"
 dependencies = [
     "chess>=1.11.2",
     "textual>=8.2.8",
 ]
+
+[project.urls]
+Homepage = "https://github.com/leolaurindo/chess-analyzer-tui"
+Source = "https://github.com/leolaurindo/chess-analyzer-tui"
+Issues = "https://github.com/leolaurindo/chess-analyzer-tui/issues"
 
 [project.scripts]
 chess-analyzer = "chess_tui:main"
