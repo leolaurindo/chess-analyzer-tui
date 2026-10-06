@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 
 import chess
 import chess.engine
+from rich.style import Style
 
 from chess_cli import find_stockfish
 from chess_input import parse_input
@@ -96,6 +97,31 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(pilot.press("right"), timeout=2)
             await wait_for_analysis(app, pilot)
             self.assertTrue(app.current.candidates)
+
+    async def test_evaluation_bar_uses_terminal_game_result(self):
+        white_mate = chess.Board("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1")
+        black_mate = chess.Board()
+        for move in ("f3", "e5", "g4", "Qh4#"):
+            black_mate.push_san(move)
+        stalemate = chess.Board("7k/5K2/6Q1/8/8/8/8/8 b - - 0 1")
+        cases = (
+            (white_mate, {"#f0f0e8"}),
+            (black_mate, {"#30343b"}),
+            (stalemate, {"#f0f0e8", "#30343b"}),
+        )
+
+        for board, expected_colors in cases:
+            with self.subTest(outcome=board.outcome()):
+                app = ChessAnalysisApp(board, self.engine, 0.05, 3)
+                async with app.run_test(size=(120, 42)) as pilot:
+                    await pilot.pause()
+                    bar = app.query_one("#evaluation-bar").render()
+                    colors = [Style.parse(span.style).bgcolor.name for span in bar.spans]
+                    self.assertTrue(colors)
+                    self.assertEqual(set(colors), expected_colors)
+                    if len(expected_colors) == 2:
+                        self.assertLessEqual(abs(colors.count("#f0f0e8") -
+                                                 colors.count("#30343b")), 1)
 
     async def test_pgn_navigation_and_exploration(self):
         board, moves, white_name, black_name = parse_input(

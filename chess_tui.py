@@ -73,14 +73,18 @@ def history_to_san(node: Node) -> str:
 
 class EvaluationBar(Widget):
     def render(self) -> Text:
-        candidate = next(iter(self.app.current.candidates), None)
-        score = candidate.score if candidate else "0.00"
-        if score.startswith("M"):
-            white_share = 1.0
-        elif score.startswith("-M"):
-            white_share = 0.0
+        outcome = self.app.current.board.outcome()
+        if outcome is not None:
+            white_share = 0.5 if outcome.winner is None else float(outcome.winner)
         else:
-            white_share = 1 / (1 + math.exp(-float(score) / 1.5)) if score != "?" else 0.5
+            candidate = next(iter(self.app.current.candidates), None)
+            score = candidate.score if candidate else "0.00"
+            if score.startswith("M"):
+                white_share = 1.0
+            elif score.startswith("-M"):
+                white_share = 0.0
+            else:
+                white_share = 1 / (1 + math.exp(-float(score) / 1.5)) if score != "?" else 0.5
         height = max(1, self.size.height)
         white_rows = round(height * white_share)
         return Text("\n").join(

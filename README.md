@@ -5,6 +5,8 @@ Interactive terminal chess analysis from FEN or PGN text, files, or your clipboa
 Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui).
 Full renderer credits and license information are below.
 
+![Chess Analyzer TUI demo](demos/showcase.gif)
+
 ## Install and run
 
 Requires Python 3.11+.
