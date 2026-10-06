@@ -78,17 +78,11 @@ move, and red a checked king.
 
 ## Renderer credits
 
-The multiline piece artwork and size-adaptive rendering approach are adapted
-from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui),
-using its [native piece designs](https://github.com/thomas-mauran/chess-tui/tree/fc1d4841532bf72f5a25c5cb45abe82ec25e056b/src/pieces).
-Thank you to Thomas Mauran and the chess-tui contributors.
-
-The artwork is used under the MIT License; its copyright and full license notice
-are preserved in [licenses/chess-tui-MIT.txt](licenses/chess-tui-MIT.txt). We
-adapted the art to Python/Textual, centered it within our board cells, reduced
-the large king's outer padding, and aligned the large pawn's head and base. Our
-Stockfish analysis, PGN navigation, and branch management remain independent of
-the upstream Rust application.
+The piece artwork and size-adaptive rendering approach are adapted from
+[Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui), using its
+[piece designs](https://github.com/thomas-mauran/chess-tui/tree/fc1d4841532bf72f5a25c5cb45abe82ec25e056b/src/pieces).
+The artwork is used under the MIT License; the full notice is preserved in
+[licenses/chess-tui-MIT.txt](licenses/chess-tui-MIT.txt).
 
 ## Verify
 

@@ -92,6 +92,10 @@ def missing_engine_message() -> str:
     )
 
 
+def side_label(color: str, name: str) -> str:
+    return color if name == color else f"{color} · {name}"
+
+
 def format_score(score: chess.engine.PovScore) -> str:
     """Evaluation in pawns, from White's perspective."""
     white = score.white()
@@ -303,12 +307,8 @@ class ChessAnalysisApp(App):
             ("White", self.white_name, "Black", self.black_name) if self.flipped
             else ("Black", self.black_name, "White", self.white_name)
         )
-        self.query_one("#top-player", Static).update(
-            top_color if top_name == top_color else f"{top_color} · {top_name}"
-        )
-        self.query_one("#bottom-player", Static).update(
-            bottom_color if bottom_name == bottom_color else f"{bottom_color} · {bottom_name}"
-        )
+        self.query_one("#top-player", Static).update(side_label(top_color, top_name))
+        self.query_one("#bottom-player", Static).update(side_label(bottom_color, bottom_name))
 
     def refresh_analysis_panel(self) -> None:
         node = self.current
