@@ -1,13 +1,20 @@
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import chess
 import chess.engine
 from rich.style import Style
+from textual.widgets import Checkbox, Input, TextArea
 
 from chess_cli import find_stockfish
+from chess_game import Analysis
 from chess_input import parse_input
+from chess_library import list_analyses, load_analysis
+from chess_session import load_session, save_session
 from chess_tui import ChessAnalysisApp
 
 
@@ -126,6 +133,55 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                     if len(expected_colors) == 2:
                         self.assertLessEqual(abs(colors.count("#f0f0e8") -
                                                  colors.count("#30343b")), 1)
+
+    async def test_edit_save_and_reopen_analysis_without_navigation_keys_leaking(self):
+        board, game, white, black = parse_input('1. e4 {Imported} e5 *')
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory) / "library"
+            session = Path(directory) / "session.json"
+            app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=game,
+                                   white_name=white, black_name=black,
+                                   on_session_change=lambda state: save_session(state, session))
+            with patch("chess_tui.library_path", return_value=folder):
+                async with app.run_test() as pilot:
+                    node = app.analysis.current
+                    await pilot.press("c")
+                    editor = app.screen.query_one(TextArea)
+                    editor.load_text("My [literal] comment")
+                    await pilot.press("left", "q")
+                    self.assertIs(app.analysis.current, node)
+                    editor.load_text("My [literal] comment")
+                    await pilot.press("ctrl+s")
+                    self.assertEqual(node.comment, "My [literal] comment")
+                    self.assertEqual(load_session(session).current.comment, node.comment)
+                    await pilot.press("c")
+                    app.screen.query_one(TextArea).load_text("Canceled edit")
+                    await pilot.press("escape")
+                    self.assertEqual(node.comment, "My [literal] comment")
+                    await pilot.press("s")
+                    app.screen.query_one(Input).value = "Tal notes"
+                    await pilot.click("#save")
+                    entries, _ = list_analyses(folder)
+                    self.assertEqual([entry.title for entry in entries], ["Tal notes"])
+                    node.comment = "Replacement"
+                    await pilot.press("s")
+                    await pilot.click("#save")
+                    self.assertIn("already exists", app.screen.query_one("#error").render().plain)
+                    self.assertEqual(load_analysis(entries[0].path).current.comment, "My [literal] comment")
+                    app.screen.query_one(Checkbox).value = True
+                    await pilot.press("ctrl+s")
+                    self.assertEqual(load_analysis(entries[0].path).current.comment, "Replacement")
+                    app.replace_analysis(Analysis.from_input(chess.Board()))
+                    self.assertEqual(app.analysis.current.comment, "")
+                    await pilot.press("l")
+                    await pilot.pause()
+                    await pilot.press("enter")
+                    self.assertEqual(app.analysis.current.comment, "Replacement")
+                    self.assertEqual(load_session(session).current.comment, "Replacement")
+                    await pilot.press("c")
+                    app.screen.query_one(TextArea).load_text("")
+                    await pilot.press("ctrl+s")
+                    self.assertFalse(app.query_one("#comments").display)
 
     async def test_opening_label_tracks_navigation_and_imported_variations(self):
         board, game, _, _ = parse_input(

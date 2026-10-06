@@ -26,6 +26,7 @@ chess-analyzer --file game.pgn
 chess-analyzer --file position.fen
 chess-analyzer --clip
 chess-analyzer --continue          # or: chess-analyzer -c
+chess-analyzer --library           # choose a saved analysis
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
 
@@ -46,6 +47,7 @@ Options:
 - `--file PATH` — load FEN or PGN from a file
 - `--clip` — load FEN or PGN from the clipboard
 - `--continue` / `-c` — restore the last analysis session
+- `--library` — interactively reopen a named local analysis
 - `--ascii` — use ASCII pieces
 - `--time 0.5` — set analysis time
 - `--lines 3` — show multiple lines
@@ -75,6 +77,25 @@ stored locally:
 - Windows: `%LOCALAPPDATA%\\chess-analyzer`
 
 `--continue` cannot be combined with text, `--file`, or `--clip`.
+
+## Local analysis library
+
+- **c** opens the current position’s comment editor; **Ctrl+S** or Save applies
+  the edit, and Esc cancels. An empty comment removes it. Imported comments can
+  be edited, and explored positions can have their own comments.
+- **s** saves the entire analysis under a name: comments, imported and explored
+  variations, current position, player names, and orientation. Existing names
+  require explicit replacement confirmation. Engine evaluations are recalculated.
+- **l** opens the library; choose with ↑/↓ and Enter. Esc leaves the current
+  analysis unchanged. You can also start with `chess-analyzer --library`.
+
+Named saves are independent of the automatic `--continue` snapshot. Further
+edits require **s** to update the named save; changing games does not change it.
+The library stores one JSON file per named analysis in:
+
+- Linux: `$XDG_DATA_HOME/chess-analyzer/analyses`, or `~/.local/share/chess-analyzer/analyses`
+- macOS: `~/Library/Application Support/chess-analyzer/analyses`
+- Windows: `%LOCALAPPDATA%\\chess-analyzer\\analyses`
 
 ## Stockfish
 

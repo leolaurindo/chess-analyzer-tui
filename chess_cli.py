@@ -92,7 +92,7 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
         app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
                                game=game, engine_name=engine_name,
                                white_name=white_name, black_name=black_name,
-                               on_session_change=persist)
+                               on_session_change=persist, startup_menu="library" if args.library else None)
         if session is not None:
             app.analysis = session
         await app.run_async()
@@ -116,6 +116,7 @@ def main() -> None:
                         help="Analyze FEN or PGN from the clipboard")
     source.add_argument("-c", "--continue", dest="continue_session", action="store_true",
                         help="Restore the last analysis session")
+    source.add_argument("--library", action="store_true", help="Browse saved local analyses")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
     parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
     parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
@@ -130,7 +131,7 @@ def main() -> None:
     if min(args.lines, args.threads, args.hash) < 1:
         parser.error("--lines, --threads and --hash must be positive")
     session = None
-    if args.continue_session:
+    if args.continue_session or (args.library and session_path().exists()):
         try:
             session = load_session(session_path())
         except FileNotFoundError as exc:
@@ -144,6 +145,8 @@ def main() -> None:
         board, game, pgn_white, pgn_black = load_input(args.input, file=args.file, clipboard=args.clip)
     white_name = player_name(args.white, pgn_white)
     black_name = player_name(args.black, pgn_black)
+    if session is not None:
+        session.white_name, session.black_name = white_name, black_name
     if not board.is_valid():
         raise SystemExit("The starting position is invalid.")
     engine_path = args.engine or find_stockfish()

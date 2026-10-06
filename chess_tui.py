@@ -15,10 +15,13 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Resize
+from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Footer, Header, Static
 
+from chess_dialogs import CommentEditor, LibraryDialog, SaveAnalysisDialog
 from chess_game import Analysis, Candidate, Node, history_to_san
+from chess_library import SavedAnalysis, library_path
 from chess_openings import opening_label
 from piece_art import PIECE_ART
 
@@ -147,6 +150,9 @@ class ChessAnalysisApp(App):
         Binding("escape", "return_to_game", "Original game", priority=True),
         ("f", "flip_board", "Flip"),
         ("r", "reanalyze", "Re-analyze"),
+        ("c", "edit_comment", "Comment"),
+        ("s", "save_analysis", "Save"),
+        ("l", "open_library", "Library"),
         ("q", "quit", "Quit"),
     ]
 
@@ -154,15 +160,18 @@ class ChessAnalysisApp(App):
                  think_time: float, multipv: int, ascii_pieces: bool = False,
                  game: chess.pgn.Game | None = None, engine_name: str = "Engine",
                  white_name: str = "White", black_name: str = "Black",
-                 on_session_change: Callable[[Analysis], None] | None = None):
+                 on_session_change: Callable[[Analysis], None] | None = None,
+                 startup_menu: str | None = None):
         super().__init__()
         self.on_session_change = on_session_change
+        self.startup_menu = startup_menu
         self.engine = engine
         self.think_time = think_time
         self.multipv = multipv
         self.ascii_pieces = ascii_pieces
         self.engine_name = engine_name
         self.analysis = Analysis.from_input(board, game, white_name, black_name)
+        self.saved_title = ""
         self.analysis_requested = asyncio.Event()
 
     def compose(self) -> ComposeResult:
@@ -187,6 +196,8 @@ class ChessAnalysisApp(App):
         self.analyze_requested_position()
         self.analysis_loop()
         self.save_session()
+        if self.startup_menu == "library":
+            self.action_open_library()
 
     def save_session(self) -> None:
         if self.on_session_change is not None:
@@ -196,6 +207,8 @@ class ChessAnalysisApp(App):
         self.screen.set_class(event.size.width < 64, "narrow")
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
+        if isinstance(self.screen, ModalScreen):
+            return False
         return action != "return_to_game" or self.analysis.return_position is not None
 
     def refresh_ui(self) -> None:
@@ -223,8 +236,7 @@ class ChessAnalysisApp(App):
         original = node.mainline_next.move_from_parent if node.mainline_next else None
         # A non-playable end row prevents jumping from the PGN into an engine line.
         moves = [original] if node.is_mainline else []
-        moves += [move for move, child in node.children.items()
-                  if child.imported and move != original]
+        moves += [move for move in node.children if move != original]
         return moves + [c.move for c in node.candidates if c.move not in moves]
 
     def selected_move(self) -> chess.Move | None:
@@ -264,7 +276,8 @@ class ChessAnalysisApp(App):
             san = board.san(move) if move else "End of original game"
             child = node.children.get(move)
             imported = child is not None and child.imported
-            label = "Original" if original else "Variation" if imported else "Engine"
+            label = ("Original" if original else "Variation" if imported
+                     else "Engine" if candidate else "Explored")
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
                 row += f"  {candidate.score}"
@@ -445,3 +458,42 @@ class ChessAnalysisApp(App):
     def action_reanalyze(self) -> None:
         self.analysis.current.analyzed = False
         self.analyze_requested_position()
+
+    def replace_analysis(self, analysis: Analysis, title: str = "") -> None:
+        self.analysis = analysis
+        self.saved_title = title
+        self.sub_title = title
+        self.show_position(analysis.current)
+
+    def action_edit_comment(self) -> None:
+        node = self.analysis.current
+
+        def edited(comment: str | None) -> None:
+            if comment is not None:
+                node.comment = comment
+                self.save_session()
+            self.refresh_ui()
+
+        self.push_screen(CommentEditor(node.comment), edited)
+
+    def action_save_analysis(self) -> None:
+        title = self.saved_title or f"{self.analysis.white_name} vs {self.analysis.black_name}"
+
+        def saved(entry: SavedAnalysis | None) -> None:
+            if entry is not None:
+                self.saved_title = entry.title
+                self.sub_title = entry.title
+                self.notify(f"Saved: {entry.title}")
+            self.refresh_ui()
+
+        self.push_screen(SaveAnalysisDialog(self.analysis, title, library_path()), saved)
+
+    def action_open_library(self) -> None:
+        def opened(result: tuple[str, Analysis] | None) -> None:
+            if result is not None:
+                title, analysis = result
+                self.replace_analysis(analysis, title)
+            else:
+                self.refresh_ui()
+
+        self.push_screen(LibraryDialog(library_path()), opened)

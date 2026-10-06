@@ -90,7 +90,8 @@ class CliTests(unittest.TestCase):
     def test_input_sources_are_mutually_exclusive(self):
         for sources in (["--clip", chess.STARTING_FEN], ["--clip", "--file", "game.pgn"],
                         ["--file", "game.pgn", chess.STARTING_FEN], ["-c", "--clip"],
-                        ["--continue", "--file", "game.pgn"], ["-c", chess.STARTING_FEN]):
+                        ["--continue", "--file", "game.pgn"], ["-c", chess.STARTING_FEN],
+                        ["--library", "--clip"], ["--library", "--continue"]):
             with (
                 self.subTest(sources=sources),
                 patch("sys.argv", ["chess-analyzer", *sources]),
