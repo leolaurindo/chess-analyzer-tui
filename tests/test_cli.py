@@ -13,6 +13,23 @@ from chess_cli import main
 
 
 class CliTests(unittest.TestCase):
+    def test_version_aliases_print_version_without_starting_analysis(self):
+        for flag in ("--version", "-v"):
+            output = io.StringIO()
+            with (
+                self.subTest(flag=flag),
+                patch("sys.argv", ["chess-analyzer", flag]),
+                patch("chess_cli.find_stockfish") as find_engine,
+                patch("pyperclip.paste") as paste,
+                contextlib.redirect_stdout(output),
+                self.assertRaises(SystemExit) as error,
+            ):
+                main()
+            self.assertEqual(error.exception.code, 0)
+            self.assertRegex(output.getvalue(), r"^chess-analyzer \d+\.\d+\.\d+\n$")
+            find_engine.assert_not_called()
+            paste.assert_not_called()
+
     def test_all_sources_load_fen_and_pgn(self):
         pgn = '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 e5 *\n'
         fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"

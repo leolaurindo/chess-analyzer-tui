@@ -7,6 +7,7 @@ import math
 import os
 import platform
 import shutil
+from importlib.metadata import version
 from pathlib import Path
 
 import chess
@@ -108,6 +109,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="chess-analyzer", description="Interactive UCI chess engine analyzer.",
     )
+    parser.add_argument("-v", "--version", action="version",
+                        version=f"%(prog)s {version('chess-analyzer-tui')}")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("input", nargs="?", help="FEN position or PGN text")
     source.add_argument("--file", help="Read FEN or PGN from a UTF-8 file")
