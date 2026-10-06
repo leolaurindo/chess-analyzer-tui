@@ -15,7 +15,7 @@ separate PyPI package):
 
 ```sh
 uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
-chess-analyzer
+chess-analyzer # opens a new game
 chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
 chess-analyzer --file game.pgn
 chess-analyzer --file position.fen
