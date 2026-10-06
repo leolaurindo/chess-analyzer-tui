@@ -1,6 +1,6 @@
 # Chess Analyzer TUI
 
-Interactive terminal chess analysis from FEN positions, PGN files, or your clipboard, with Stockfish as the default and support for other UCI engines.
+Interactive terminal chess analysis from FEN or PGN text, files, or your clipboard, with Stockfish as the default engine and support for other UCI engines.
 
 Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui).
 Full renderer credits and license information are below.
@@ -16,7 +16,9 @@ separate PyPI package):
 ```sh
 uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
 chess-analyzer
-chess-analyzer --pgn game.pgn
+chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
+chess-analyzer --file game.pgn
+chess-analyzer --file position.fen
 chess-analyzer --clip              # or: chess-analyzer -c
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
@@ -24,11 +26,14 @@ chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2
 The command works from any directory. If it isn't on PATH, use
 `uv tool update-shell` (or `pipx ensurepath`) and restart your shell.
 
-Alternatively, pass a quoted FEN.
+Pass quoted FEN or PGN text, use `--file` to read a UTF-8 file, or `--clip` to read
+the clipboard. Choose one input source; the format is detected from its contents.
+Without input, analysis starts from the initial position.
 
 Options:
 
-- `--clip` / `-c` — load FEN or PGN from the clipboard (cannot combine with FEN or `--pgn`)
+- `--file PATH` — load FEN or PGN from a file
+- `--clip` / `-c` — load FEN or PGN from the clipboard
 - `--ascii` — use ASCII pieces
 - `--time 0.5` — set analysis time
 - `--lines 3` — show multiple lines

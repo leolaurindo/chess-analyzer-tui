@@ -10,7 +10,6 @@ import platform
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TextIO
 
 import chess
 import chess.engine
@@ -503,7 +502,7 @@ class ChessAnalysisApp(App):
         self.analyze_requested_position()
 
 
-async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.Move],
+async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.Move] | None,
                   white_name: str, black_name: str) -> None:
     transport, engine = await chess.engine.popen_uci(engine_path)
     try:
@@ -526,7 +525,7 @@ async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.
                 multipv = min(multipv, multipv_option.max)
         engine_name = engine.id.get("name") or Path(engine_path).name
         app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
-                               moves=moves if args.pgn or moves else None, engine_name=engine_name,
+                               moves=moves, engine_name=engine_name,
                                white_name=white_name, black_name=black_name)
         await app.run_async()
     finally:
@@ -541,21 +540,21 @@ def player_name(value: str | None, fallback: str) -> str:
     return fallback if name in {"", "?"} else name
 
 
-def load_pgn(path: str) -> tuple[chess.Board, list[chess.Move], str, str]:
+def parse_input(text: str) -> tuple[chess.Board, list[chess.Move] | None, str, str]:
+    text = text.strip()
     try:
-        with open(path, encoding="utf-8") as pgn_file:
-            return parse_pgn(pgn_file)
-    except OSError as exc:
-        raise SystemExit(f"Could not read PGN: {exc}") from exc
-
-
-def parse_pgn(source: TextIO) -> tuple[chess.Board, list[chess.Move], str, str]:
-    game = chess.pgn.read_game(source)
+        return chess.Board(text), None, "White", "Black"
+    except ValueError:
+        pass
+    game = chess.pgn.read_game(io.StringIO(text))
     if game is None:
-        raise SystemExit("The PGN does not contain a game.")
+        raise SystemExit("Input does not contain a FEN position or PGN game.")
     if game.errors:
         raise SystemExit(f"Could not parse PGN: {game.errors[0]}")
-    return (game.board(), list(game.mainline_moves()),
+    moves = list(game.mainline_moves())
+    if not moves:
+        raise SystemExit("Input does not contain a valid FEN or PGN game with moves.")
+    return (game.board(), moves,
             player_name(game.headers.get("White"), "White"),
             player_name(game.headers.get("Black"), "Black"))
 
@@ -564,9 +563,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="chess-analyzer", description="Interactive UCI chess engine analyzer.",
     )
-    parser.add_argument("fen", nargs="?", help="FEN position (mutually exclusive with --pgn and --clip)")
     source = parser.add_mutually_exclusive_group()
-    source.add_argument("--pgn", help="PGN file to analyze from its final position")
+    source.add_argument("input", nargs="?", help="FEN position or PGN text")
+    source.add_argument("--file", help="Read FEN or PGN from a UTF-8 file")
     source.add_argument("-c", "--clip", action="store_true",
                         help="Analyze FEN or PGN from the clipboard")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
@@ -582,30 +581,18 @@ def main() -> None:
         parser.error("--time must be a positive, finite number")
     if min(args.lines, args.threads, args.hash) < 1:
         parser.error("--lines, --threads and --hash must be positive")
-    if args.fen and (args.pgn or args.clip):
-        parser.error("provide only one of a FEN, --pgn, or --clip")
-    moves = []
-    if args.pgn:
-        board, moves, pgn_white, pgn_black = load_pgn(args.pgn)
+    text = args.input if args.input is not None else chess.STARTING_FEN
+    if args.file is not None:
+        try:
+            text = Path(args.file).read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError) as exc:
+            raise SystemExit(f"Could not read file: {exc}") from exc
     elif args.clip:
         try:
-            clipboard = pyperclip.paste()
+            text = pyperclip.paste()
         except (pyperclip.PyperclipException, OSError) as exc:
             raise SystemExit(f"Could not read clipboard: {exc}") from exc
-        try:
-            board = chess.Board(clipboard.strip())
-        except ValueError:
-            board, moves, pgn_white, pgn_black = parse_pgn(io.StringIO(clipboard))
-            if not moves:
-                raise SystemExit("The clipboard does not contain a valid FEN or PGN game with moves.")
-        else:
-            pgn_white, pgn_black = "White", "Black"
-    else:
-        pgn_white, pgn_black = "White", "Black"
-        try:
-            board = chess.Board(args.fen or chess.STARTING_FEN)
-        except ValueError as exc:
-            raise SystemExit(f"Invalid FEN: {exc}") from exc
+    board, moves, pgn_white, pgn_black = parse_input(text)
     white_name = player_name(args.white, pgn_white)
     black_name = player_name(args.black, pgn_black)
     if not board.is_valid():

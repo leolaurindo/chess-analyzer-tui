@@ -1,6 +1,8 @@
 import contextlib
 import io
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import chess
@@ -10,26 +12,30 @@ from chess_tui import main
 
 
 class CliTests(unittest.TestCase):
-    def test_clipboard_aliases_load_fen_and_pgn(self):
+    def test_all_sources_load_fen_and_pgn(self):
         pgn = '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 e5 *\n'
         fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
         cases = [
             (pgn, chess.STARTING_FEN, ["e2e4", "e7e5"], ("Supi", "Carlsen")),
-            (f"\n {fen} \n", fen, [], ("White", "Black")),
+            (f"\n {fen} \n", fen, None, ("White", "Black")),
         ]
-        for flag in ("--clip", "-c"):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "position.txt"
             for contents, expected_fen, expected_moves, names in cases:
-                with (
-                    self.subTest(flag=flag, contents=contents),
-                    patch("sys.argv", ["chess-analyzer", flag, "--engine", "stockfish"]),
-                    patch("pyperclip.paste", return_value=contents),
-                    patch("chess_tui.run_app", new_callable=AsyncMock) as run,
-                ):
-                    main()
-                    args, board, engine, moves, white, black = run.call_args.args
-                    self.assertEqual(board.fen(), expected_fen)
-                    self.assertEqual([move.uci() for move in moves], expected_moves)
-                    self.assertEqual((white, black), names)
+                path.write_text(contents, encoding="utf-8-sig")
+                for source in ([contents], ["--file", str(path)], ["--clip"], ["-c"]):
+                    with (
+                        self.subTest(source=source, contents=contents),
+                        patch("sys.argv", ["chess-analyzer", *source, "--engine", "stockfish"]),
+                        patch("pyperclip.paste", return_value=contents),
+                        patch("chess_tui.run_app", new_callable=AsyncMock) as run,
+                    ):
+                        main()
+                        args, board, engine, moves, white, black = run.call_args.args
+                        self.assertEqual(board.fen(), expected_fen)
+                        self.assertEqual(None if moves is None else [move.uci() for move in moves],
+                                         expected_moves)
+                        self.assertEqual((white, black), names)
 
     def test_clipboard_is_not_read_without_opt_in(self):
         with (
@@ -43,7 +49,7 @@ class CliTests(unittest.TestCase):
     def test_clipboard_rejects_unavailable_empty_and_invalid_games(self):
         cases = [
             (pyperclip.PyperclipException("No clipboard backend"), "Could not read clipboard"),
-            ("", "does not contain a game"),
+            ("", "does not contain a FEN position or PGN game"),
             ("not a chess game", "does not contain a valid FEN or PGN game with moves"),
             ('[Event "No moves"]\n\n*', "does not contain a valid FEN or PGN game with moves"),
             ("1. e4 e5 2. Bh6 *", "Could not parse PGN"),
@@ -62,11 +68,12 @@ class CliTests(unittest.TestCase):
             self.assertIn(message, str(error.exception))
             run.assert_not_called()
 
-    def test_clipboard_cannot_be_combined_with_other_sources(self):
-        for other in ([chess.STARTING_FEN], ["--pgn", "game.pgn"]):
+    def test_input_sources_are_mutually_exclusive(self):
+        for sources in (["-c", chess.STARTING_FEN], ["-c", "--file", "game.pgn"],
+                        ["--file", "game.pgn", chess.STARTING_FEN]):
             with (
-                self.subTest(other=other),
-                patch("sys.argv", ["chess-analyzer", "-c", *other]),
+                self.subTest(sources=sources),
+                patch("sys.argv", ["chess-analyzer", *sources]),
                 patch("pyperclip.paste") as paste,
                 contextlib.redirect_stderr(io.StringIO()),
                 self.assertRaises(SystemExit) as error,
@@ -74,6 +81,19 @@ class CliTests(unittest.TestCase):
                 main()
             self.assertEqual(error.exception.code, 2)
             paste.assert_not_called()
+
+    def test_unreadable_file_reports_an_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for path in (Path(directory) / "missing", Path(directory) / "invalid"):
+                if path.name == "invalid":
+                    path.write_bytes(b"\xff")
+                with (
+                    self.subTest(path=path),
+                    patch("sys.argv", ["chess-analyzer", "--file", str(path)]),
+                    self.assertRaises(SystemExit) as error,
+                ):
+                    main()
+                self.assertIn("Could not read file", str(error.exception))
 
     def test_missing_engine_explains_installation_for_the_detected_os(self):
         cases = [

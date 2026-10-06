@@ -7,7 +7,7 @@ from pathlib import Path
 import chess
 import chess.engine
 
-from chess_tui import ChessAnalysisApp, find_stockfish, load_pgn
+from chess_tui import ChessAnalysisApp, find_stockfish, parse_input
 
 
 def screen_text(app):
@@ -101,7 +101,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "game.pgn"
             path.write_text('[Event "Test"]\n[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *\n', encoding="utf-8")
-            board, moves, white_name, black_name = load_pgn(path)
+            board, moves, white_name, black_name = parse_input(path.read_text(encoding="utf-8"))
         final = board.copy()
         for move in moves:
             final.push(move)
