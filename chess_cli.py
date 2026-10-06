@@ -92,7 +92,8 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
         app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
                                game=game, engine_name=engine_name,
                                white_name=white_name, black_name=black_name,
-                               on_session_change=persist, startup_menu="library" if args.library else None)
+                               on_session_change=persist,
+                               startup_menu="library" if args.library else "browser" if args.browse else None)
         if session is not None:
             app.analysis = session
         await app.run_async()
@@ -117,6 +118,7 @@ def main() -> None:
     source.add_argument("-c", "--continue", dest="continue_session", action="store_true",
                         help="Restore the last analysis session")
     source.add_argument("--library", action="store_true", help="Browse saved local analyses")
+    source.add_argument("--browse", action="store_true", help="Browse public Chess.com or Lichess games")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
     parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
     parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
@@ -134,8 +136,10 @@ def main() -> None:
         parser.error("--lines, --threads and --hash must be positive")
     if bool(args.chesscom_user) != bool(args.chesscom_month):
         parser.error("--chesscom-user and --chesscom-month must be used together")
+    if args.chesscom_user and (args.continue_session or args.library or args.browse):
+        parser.error("Chess.com archive flags apply only to a game URL, not a startup menu or --continue")
     session = None
-    if args.continue_session or (args.library and session_path().exists()):
+    if args.continue_session or ((args.library or args.browse) and session_path().exists()):
         try:
             session = load_session(session_path())
         except FileNotFoundError as exc:

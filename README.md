@@ -27,6 +27,7 @@ chess-analyzer --file position.fen
 chess-analyzer --clip
 chess-analyzer --continue          # or: chess-analyzer -c
 chess-analyzer --library           # choose a saved analysis
+chess-analyzer --browse            # browse public Chess.com / Lichess games
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
 
@@ -51,6 +52,7 @@ Options:
 - `--clip` — load FEN or PGN from the clipboard
 - `--continue` / `-c` — restore the last analysis session
 - `--library` — interactively reopen a named local analysis
+- `--browse` — interactively browse completed public Chess.com / Lichess games
 - `--chesscom-user NAME` / `--chesscom-month YYYY-MM` — archive context for a Chess.com game URL
 - `--ascii` — use ASCII pieces
 - `--time 0.5` — set analysis time
@@ -101,6 +103,33 @@ The library stores one JSON file per named analysis in:
 - macOS: `~/Library/Application Support/chess-analyzer/analyses`
 - Windows: `%LOCALAPPDATA%\\chess-analyzer\\analyses`
 
+## Online game browser
+
+Press **b** during analysis, or run `chess-analyzer --browse`. Choose Chess.com
+or Lichess, enter a public username, and select Load games (or Enter in the
+username field). No login, token storage, or play-token reuse is needed.
+
+- **Chess.com:** loads the latest archive month first. Choose another month and
+  Load games to browse older games. Public archives can lag due to caching.
+- **Lichess:** shows 50 games per page; Older continues backwards and Newest
+  returns to the latest page.
+- Choose a game with ↑/↓ and Enter. Only completed standard-chess games are
+  listed. The selected PGN opens for analysis, preserving its comments and
+  variations. Press **s** if you want to keep a named local copy.
+- Esc cancels without changing your analysis, including during a request.
+
+Requests are sequential, run off the UI thread, and have time/size limits. Rate
+limits are shown without automatic retries; wait at least a minute before retrying.
+Canceling discards a pending result; the underlying HTTP request can run until its
+timeout. Nothing is fetched until you ask to load games.
+
+`--browse` and `--library` restore the last session behind their menus when one
+exists, so canceling does not replace your continue snapshot with a new game.
+These startup menus cannot be combined with another input source.
+
+Provider references: [Chess.com Published Data API](https://support.chess.com/en/articles/9650547-published-data-api)
+and [Lichess game export API](https://lichess.org/api#tag/Games/operation/apiGamesUser).
+
 ## Stockfish
 
 Stockfish is the default engine and is installed separately. If it isn't found,
@@ -142,7 +171,7 @@ position on the current line. Transpositions are recognized; stepping back or
 exploring another line updates the label. For FEN-only input, only the supplied
 position (and subsequent moves) can be matched. Labels work offline.
 
-- **↑/↓** — choose an original move or engine alternative
+- **↑/↓** — choose an original move, retained variation, or engine alternative
 - **→/Enter** — follow the selected move; **←** — step back
 - **Esc** — return from an explored line to its game position
 - **f** — flip board; **r** — reanalyze; **q** — quit

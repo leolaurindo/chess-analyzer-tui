@@ -10,7 +10,7 @@ import chess.pgn
 import pyperclip
 
 
-from chess_online import load_url
+from chess_online import chesscom_game_id, load_url
 
 
 def player_name(value: str | None, fallback: str) -> str:
@@ -50,6 +50,8 @@ def load_input(text: str | None = None, *, file: str | None = None,
             text = pyperclip.paste()
         except (pyperclip.PyperclipException, OSError) as exc:
             raise SystemExit(f"Could not read clipboard: {exc}") from exc
+    if (chesscom_user or chesscom_month) and chesscom_game_id(text.strip()) is None:
+        raise SystemExit("Chess.com archive flags apply only to a Chess.com game URL.")
     if text.strip().lower().startswith(("https://", "http://")):
         try:
             text = load_url(text.strip(), chesscom_user=chesscom_user, chesscom_month=chesscom_month)

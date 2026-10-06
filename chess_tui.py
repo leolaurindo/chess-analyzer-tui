@@ -19,6 +19,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Footer, Header, Static
 
+from chess_browser import GameBrowser
 from chess_dialogs import CommentEditor, LibraryDialog, SaveAnalysisDialog
 from chess_game import Analysis, Candidate, Node, history_to_san
 from chess_library import SavedAnalysis, library_path
@@ -153,6 +154,7 @@ class ChessAnalysisApp(App):
         ("c", "edit_comment", "Comment"),
         ("s", "save_analysis", "Save"),
         ("l", "open_library", "Library"),
+        ("b", "browse_games", "Games"),
         ("q", "quit", "Quit"),
     ]
 
@@ -198,6 +200,8 @@ class ChessAnalysisApp(App):
         self.save_session()
         if self.startup_menu == "library":
             self.action_open_library()
+        elif self.startup_menu == "browser":
+            self.action_browse_games()
 
     def save_session(self) -> None:
         if self.on_session_change is not None:
@@ -497,3 +501,12 @@ class ChessAnalysisApp(App):
                 self.refresh_ui()
 
         self.push_screen(LibraryDialog(library_path()), opened)
+
+    def action_browse_games(self) -> None:
+        def opened(analysis: Analysis | None) -> None:
+            if analysis is not None:
+                self.replace_analysis(analysis)
+            else:
+                self.refresh_ui()
+
+        self.push_screen(GameBrowser(), opened)

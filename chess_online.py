@@ -134,26 +134,30 @@ def chesscom_games(username: str, month: str) -> list[OnlineGame]:
     if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
         raise ValueError("Use an archive month in YYYY-MM format.")
     url = f"https://api.chess.com/pub/player/{quote(username)}/games/{month.replace('-', '/')}"
-    data = json.loads(fetch_text(url, max_bytes=16 * 1024 * 1024))
-    if not isinstance(data, dict) or not isinstance(data.get("games"), list):
-        raise ValueError("Chess.com returned an invalid game list.")
-    if any(not isinstance(game, dict) for game in data["games"]):
-        raise ValueError("Chess.com returned an invalid game record.")
-    games = []
-    for game in sorted(data["games"], key=lambda game: game.get("end_time", 0), reverse=True):
-        if game.get("rules") != "chess":
-            continue
-        pgn = game.get("pgn", "")
-        if not isinstance(pgn, str):
-            raise ValueError("Chess.com returned an invalid PGN.")
-        result = re.search(r'\[Result "(1-0|0-1|1/2-1/2)"\]', pgn)
-        game_id = chesscom_game_id(game.get("url", ""))
-        if not result or not game_id:
-            continue
-        date = datetime.fromtimestamp(game["end_time"], timezone.utc).strftime("%Y-%m-%d %H:%M")
-        games.append(OnlineGame(game_id, game["white"]["username"], game["black"]["username"],
-                                date, result[1], game.get("time_class", ""), pgn))
-    return games
+    try:
+        data = json.loads(fetch_text(url, max_bytes=16 * 1024 * 1024))
+        if not isinstance(data, dict) or not isinstance(data.get("games"), list):
+            raise ValueError("Chess.com returned an invalid game list.")
+        if any(not isinstance(game, dict) for game in data["games"]):
+            raise ValueError("Chess.com returned an invalid game record.")
+        games = []
+        for game in sorted(data["games"], key=lambda game: game.get("end_time", 0), reverse=True):
+            if game.get("rules") != "chess":
+                continue
+            pgn = game.get("pgn", "")
+            if not isinstance(pgn, str):
+                raise ValueError("Chess.com returned an invalid PGN.")
+            result = re.search(r'\[Result "(1-0|0-1|1/2-1/2)"\]', pgn)
+            game_id = chesscom_game_id(game.get("url", ""))
+            if not result or not game_id:
+                continue
+            date = datetime.fromtimestamp(game["end_time"], timezone.utc).strftime("%Y-%m-%d %H:%M")
+            games.append(OnlineGame(game_id, game["white"]["username"], game["black"]["username"],
+                                    date, result[1], game.get("time_class", ""), pgn))
+        return games
+
+    except (KeyError, TypeError, AttributeError, OverflowError) as exc:
+        raise ValueError("Chess.com returned malformed game metadata.") from exc
 
 
 def lichess_games(username: str, *, until: int | None = None, limit: int = 50) -> GamePage:
@@ -165,25 +169,29 @@ def lichess_games(username: str, *, until: int | None = None, limit: int = 50) -
     if until is not None:
         params["until"] = until
     url = f"https://lichess.org/api/games/user/{quote(username)}?{urlencode(params)}"
-    text = fetch_text(url, accept="application/x-ndjson")
-    records = [json.loads(line) for line in text.splitlines() if line.strip()]
-    if any(not isinstance(game, dict) for game in records):
-        raise ValueError("Lichess returned an invalid game record.")
-    games = []
-    for game in records:
-        if (game.get("variant") != "standard"
-                or game.get("status") not in {"mate", "resign", "stalemate", "timeout", "draw",
-                                           "outoftime", "cheat", "variantEnd", "unknownFinish"}):
-            continue
-        if not re.fullmatch(r"[A-Za-z0-9]{8}", game.get("id", "")):
-            raise ValueError("Lichess returned an invalid game ID.")
-        players = game["players"]
-        names = [players[color].get("user", {}).get("name", "AI") for color in ("white", "black")]
-        result = {"white": "1-0", "black": "0-1"}.get(game.get("winner"), "1/2-1/2")
-        date = datetime.fromtimestamp(game["createdAt"] / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
-        games.append(OnlineGame(game["id"], *names, date, result, game.get("speed", "")))
-    cursor = min(game["createdAt"] for game in records) - 1 if len(records) == limit else None
-    return GamePage(games, cursor)
+    try:
+        text = fetch_text(url, accept="application/x-ndjson")
+        records = [json.loads(line) for line in text.splitlines() if line.strip()]
+        if any(not isinstance(game, dict) for game in records):
+            raise ValueError("Lichess returned an invalid game record.")
+        games = []
+        for game in records:
+            if (game.get("variant") != "standard"
+                    or game.get("status") not in {"mate", "resign", "stalemate", "timeout", "draw",
+                                               "outoftime", "cheat", "variantEnd", "unknownFinish"}):
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9]{8}", game.get("id", "")):
+                raise ValueError("Lichess returned an invalid game ID.")
+            players = game["players"]
+            names = [players[color].get("user", {}).get("name", "AI") for color in ("white", "black")]
+            result = {"white": "1-0", "black": "0-1"}.get(game.get("winner"), "1/2-1/2")
+            date = datetime.fromtimestamp(game["createdAt"] / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
+            games.append(OnlineGame(game["id"], *names, date, result, game.get("speed", "")))
+        cursor = min(game["createdAt"] for game in records) - 1 if len(records) == limit else None
+        return GamePage(games, cursor)
+
+    except (KeyError, TypeError, AttributeError, OverflowError) as exc:
+        raise ValueError("Lichess returned malformed game metadata.") from exc
 
 
 def lichess_pgn(game_id: str) -> str:

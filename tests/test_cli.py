@@ -10,6 +10,8 @@ import chess
 import pyperclip
 
 from chess_cli import main
+from chess_game import Analysis
+from chess_session import save_session
 
 
 class CliTests(unittest.TestCase):
@@ -91,7 +93,9 @@ class CliTests(unittest.TestCase):
         for sources in (["--clip", chess.STARTING_FEN], ["--clip", "--file", "game.pgn"],
                         ["--file", "game.pgn", chess.STARTING_FEN], ["-c", "--clip"],
                         ["--continue", "--file", "game.pgn"], ["-c", chess.STARTING_FEN],
-                        ["--library", "--clip"], ["--library", "--continue"]):
+                        ["--library", "--clip"], ["--library", "--continue"],
+                        ["--browse", "--library"], ["--browse", "--continue"],
+                        ["--browse", chess.STARTING_FEN]):
             with (
                 self.subTest(sources=sources),
                 patch("sys.argv", ["chess-analyzer", *sources]),
@@ -102,6 +106,33 @@ class CliTests(unittest.TestCase):
                 main()
             self.assertEqual(error.exception.code, 2)
             paste.assert_not_called()
+
+    def test_startup_menus_restore_existing_analysis_before_opening(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            analysis = Analysis.from_input(chess.Board(), white_name="Alice", black_name="Bob")
+            analysis.current.comment = "Keep my note"
+            save_session(analysis, path)
+            previous = path.read_bytes()
+            for flag in ("--library", "--browse"):
+                with (self.subTest(flag=flag),
+                      patch("sys.argv", ["chess-analyzer", flag, "--engine", "stockfish"]),
+                      patch("chess_cli.session_path", return_value=path),
+                      patch("chess_cli.run_app", new_callable=AsyncMock) as run):
+                    main()
+                self.assertEqual(run.call_args.kwargs["session"].current.comment, "Keep my note")
+                self.assertTrue(getattr(run.call_args.args[0], flag[2:]))
+                self.assertEqual(path.read_bytes(), previous)
+
+    def test_archive_context_flags_reject_partial_pairs_and_startup_menus(self):
+        for flags in (["--chesscom-user", "Alice"],
+                      ["--chesscom-month", "2024-01"],
+                      ["--browse", "--chesscom-user", "Alice", "--chesscom-month", "2024-01"]):
+            with (self.subTest(flags=flags), patch("sys.argv", ["chess-analyzer", *flags]),
+                  contextlib.redirect_stderr(io.StringIO()),
+                  self.assertRaises(SystemExit) as error):
+                main()
+            self.assertEqual(error.exception.code, 2)
 
     def test_continue_reports_missing_or_corrupt_session(self):
         with tempfile.TemporaryDirectory() as directory:
