@@ -13,7 +13,7 @@ Requires Python 3.11+.
 uv tool install .      # or: pipx install .
 chess-analyzer
 chess-analyzer --pgn game.pgn
-chess-analyzer "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"  # Supi–Carlsen position
+chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
 
 The command works from any directory. If it isn't on PATH, use
