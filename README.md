@@ -1,9 +1,11 @@
 # Chess Analyzer TUI
 
-Interactive terminal chess analysis from FEN or PGN text, files, or your clipboard, with Stockfish as the default engine and support for other UCI engines.
+Interactive terminal chess analysis
 
-Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui).
-Full renderer credits and license information are below.
+Initialize analysis from FEN or PGN text, files, your clipboard, directly from URLs or public apis from `chess.com` and `lichess.org`. Stockfish is the default engine, but also supports other UCI engines.
+
+- Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui). Full renderer credits and license information are below.
+- Opening information extracted from [lichess's github repository](#opening-data-credits).
 
 ![Chess Analyzer TUI demo](demos/showcase.gif)
 
