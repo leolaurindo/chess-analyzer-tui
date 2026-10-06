@@ -1,6 +1,6 @@
 # Chess Analyzer TUI
 
-Interactive terminal chess analysis, with Stockfish as the default engine.
+Interactive terminal chess analysis, with Stockfish as the default and support for other UCI engines.
 
 Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui).
 Full renderer credits and license information are below.
@@ -57,9 +57,10 @@ Alternatively, pass an executable with `chess-analyzer --engine /path/to/stockfi
 
 Stockfish is found on PATH or beside the application module as `stockfish`
 (`stockfish.exe` on Windows). Other UCI engines can be selected with
-`--engine /path/to/engine`; engine-specific files and settings (such as Leela's
-network weights and backend) must be configured separately. The app applies
-thread, hash, and multiple-line settings only when the engine supports them.
+`--engine /path/to/engine`—for example, Leela Chess Zero (Lc0) with
+`--engine /path/to/lc0`. Configure engine-specific files and settings, such as
+Lc0's network weights and backend, separately. The app applies thread, hash,
+and multiple-line settings only when the engine supports them.
 
 ## Navigation
 
