@@ -41,7 +41,8 @@ class ProviderTests(unittest.TestCase):
                 "players": {"white": {"user": {"name": "Alice"}},
                             "black": {"user": {"name": "Bob"}}}}
         records = [base, base | {"id": "aabbcc02", "status": "started", "createdAt": 200},
-                   base | {"id": "aabbcc03", "variant": "atomic", "createdAt": 100}]
+                   base | {"id": "aabbcc03", "variant": "atomic", "createdAt": 100},
+                   base | {"id": "aabbcc04", "createdAt": 50}]  # Server returned more than requested.
         text = "\n".join(json.dumps(game) for game in records)
         with patch("chess_online.fetch_text", return_value=text) as fetch:
             page = lichess_games("Alice", until=400, limit=3)

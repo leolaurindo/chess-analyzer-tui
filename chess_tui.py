@@ -163,10 +163,13 @@ class ChessAnalysisApp(App):
                  game: chess.pgn.Game | None = None, engine_name: str = "Engine",
                  white_name: str = "White", black_name: str = "Black",
                  on_session_change: Callable[[Analysis], None] | None = None,
-                 startup_menu: str | None = None):
+                 startup_menu: str | None = None,
+                 browse_provider: str | None = None, browse_user: str | None = None):
         super().__init__()
         self.on_session_change = on_session_change
         self.startup_menu = startup_menu
+        self.browse_provider = browse_provider
+        self.browse_user = browse_user
         self.engine = engine
         self.think_time = think_time
         self.multipv = multipv
@@ -213,6 +216,8 @@ class ChessAnalysisApp(App):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
         if isinstance(self.screen, ModalScreen):
             return False
+        if action == "browse_games":
+            return bool(self.browse_provider and self.browse_user)
         return action != "return_to_game" or self.analysis.return_position is not None
 
     def refresh_ui(self) -> None:
@@ -503,10 +508,13 @@ class ChessAnalysisApp(App):
         self.push_screen(LibraryDialog(library_path()), opened)
 
     def action_browse_games(self) -> None:
+        if not self.browse_provider or not self.browse_user:
+            return
+
         def opened(analysis: Analysis | None) -> None:
             if analysis is not None:
                 self.replace_analysis(analysis)
             else:
                 self.refresh_ui()
 
-        self.push_screen(GameBrowser(), opened)
+        self.push_screen(GameBrowser(self.browse_provider, self.browse_user), opened)

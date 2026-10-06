@@ -16,6 +16,7 @@ import chess.pgn
 
 from chess_input import load_input, player_name
 from chess_game import Analysis
+from chess_online import validate_username
 from chess_session import load_session, save_session, session_path
 from chess_tui import ChessAnalysisApp
 
@@ -93,7 +94,8 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
                                game=game, engine_name=engine_name,
                                white_name=white_name, black_name=black_name,
                                on_session_change=persist,
-                               startup_menu="library" if args.library else "browser" if args.browse else None)
+                               startup_menu="library" if args.library else "browser" if args.browse else None,
+                               browse_provider=args.browse, browse_user=args.user)
         if session is not None:
             app.analysis = session
         await app.run_async()
@@ -118,7 +120,9 @@ def main() -> None:
     source.add_argument("-c", "--continue", dest="continue_session", action="store_true",
                         help="Restore the last analysis session")
     source.add_argument("--library", action="store_true", help="Browse saved local analyses")
-    source.add_argument("--browse", action="store_true", help="Browse public Chess.com or Lichess games")
+    source.add_argument("--browse", choices=("chess.com", "lichess"), metavar="PROVIDER",
+                        help="Browse public games from chess.com or lichess")
+    parser.add_argument("--user", help="Public username to browse (requires --browse)")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
     parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
     parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
@@ -132,6 +136,15 @@ def main() -> None:
         parser.error("--time must be a positive, finite number")
     if min(args.lines, args.threads, args.hash) < 1:
         parser.error("--lines, --threads and --hash must be positive")
+    if args.browse:
+        if args.user is None:
+            parser.error("--browse requires --user NAME")
+        try:
+            args.user = validate_username(args.user)
+        except ValueError as exc:
+            parser.error(str(exc))
+    elif args.user is not None:
+        parser.error("--user requires --browse chess.com or lichess")
     session = None
     if args.continue_session or ((args.library or args.browse) and session_path().exists()):
         try:

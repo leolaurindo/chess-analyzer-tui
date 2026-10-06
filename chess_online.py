@@ -177,6 +177,7 @@ def lichess_games(username: str, *, until: int | None = None, limit: int = 50) -
         records = [json.loads(line) for line in text.splitlines() if line.strip()]
         if any(not isinstance(game, dict) for game in records):
             raise ValueError("Lichess returned an invalid game record.")
+        records = records[:limit]
         games = []
         for game in records:
             if (game.get("variant") != "standard"
@@ -211,11 +212,12 @@ def _load_chesscom_game(game_id: str, kind: str) -> str:
         date = headers["Date"]
         usernames = [headers.get(color) for color in ("White", "Black")]
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
-        raise ValueError(f"Chess.com could not resolve this game URL: {exc}. Try --browse by username.") from exc
+        raise ValueError(f"Chess.com could not resolve this game URL: {exc}. "
+                         "Try --browse chess.com --user NAME.") from exc
     month = re.fullmatch(r"(\d{4})\.(0[1-9]|1[0-2])\.\d{2}", date) if isinstance(date, str) else None
     usernames = [name for name in usernames if isinstance(name, str) and name]
     if not month or not usernames:
-        raise ValueError("Chess.com did not provide the game's archive details. Try --browse by username.")
+        raise ValueError("Chess.com did not provide the game's archive details. Try --browse chess.com --user NAME.")
     for username in dict.fromkeys(usernames):
         username = validate_username(username)
         archive_url = (f"https://api.chess.com/pub/player/{quote(username)}/games/"
@@ -228,7 +230,7 @@ def _load_chesscom_game(game_id: str, kind: str) -> str:
                 if game.errors:
                     raise ValueError(f"Could not parse the archived Chess.com game: {game.errors[0]}")
                 return game.accept(chess.pgn.StringExporter(headers=True, variations=True, comments=True))
-    raise ValueError("Game not found in either player's public archive. Try --browse by username.")
+    raise ValueError("Game not found in either player's public archive. Try --browse chess.com --user NAME.")
 
 
 def load_url(url: str) -> str:

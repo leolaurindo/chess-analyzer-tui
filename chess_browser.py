@@ -1,12 +1,13 @@
-"""Interactive, cancellable browser for public completed games."""
+"""Keyboard-first game selection for a provider and username chosen on the CLI."""
 import asyncio
 
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.worker import get_current_worker
-from textual.widgets import Button, Input, Label, OptionList, Select, Static
+from textual.widgets import Button, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from chess_dialogs import AnalysisDialog
@@ -21,103 +22,118 @@ class GameBrowser(AnalysisDialog):
     GameBrowser Label { margin-bottom: 0; }
     GameBrowser Horizontal { margin-top: 0; }
     GameBrowser Button { min-width: 0; width: 1fr; margin-right: 0; }
-    GameBrowser #browser-status { height: auto; max-height: 2; }
+    GameBrowser #browser-status { height: auto; max-height: 3; }
     GameBrowser OptionList { height: 1fr; min-height: 2; max-height: 100%; }
     """
+    BINDINGS = [
+        Binding("up", "choose(-1)", "Choose", priority=True),
+        Binding("down", "choose(1)", "Choose", priority=True),
+        Binding("enter", "open_selected", "Open", priority=True),
+        Binding("left", "newer", "Newer", priority=True),
+        Binding("right", "older", "Older", priority=True),
+        ("r", "reload", "Reload"),
+        ("escape", "cancel", "Cancel"),
+    ]
 
-    def __init__(self):
+    def __init__(self, provider: str, username: str):
         super().__init__()
+        if provider not in {"chess.com", "lichess"}:
+            raise ValueError("Choose chess.com or lichess.")
+        self.provider = provider
+        self.username = validate_username(username)
         self.games: list[OnlineGame] = []
-        self.until: int | None = None
-        self.archive_user = ""
+        self.months: list[str] = []
+        self.cursors: list[int | None] = [None]
+        self.page_index = 0
         self.busy = False
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("Public completed games · choose a game with ↑/↓ and Enter")
-            yield Select([("Chess.com", "chesscom"), ("Lichess", "lichess")],
-                         value="chesscom", allow_blank=False, id="provider")
-            yield Input(placeholder="Public username (no token needed)", id="username")
-            yield Select([], prompt="Archive month", disabled=True, id="month")
+            yield Label(Text(f"{self.provider} · {self.username}"))
+            yield Label("↑/↓ choose · Enter opens · ←/→ newer/older · r reload · Esc cancels")
             with Horizontal():
-                yield Button("Load games", id="load", variant="primary")
+                yield Button("Newer", id="newer", disabled=True)
                 yield Button("Older", id="older", disabled=True)
-                yield Button("Newest", id="newest", disabled=True)
-            yield Static("Enter a username, then Load games. Esc cancels.", id="browser-status")
+                yield Button("Reload", id="reload")
+            yield Static("Loading…", id="browser-status")
             yield OptionList(id="games")
 
-    @on(Select.Changed, "#provider")
-    @on(Input.Changed, "#username")
-    def reset_listing(self) -> None:
-        self.games = []
-        self.until = None
-        self.archive_user = ""
-        self.query_one("#games", OptionList).clear_options()
-        month = self.query_one("#month", Select)
-        month.set_options([])
-        month.disabled = True
-        month.display = self.query_one("#provider", Select).value == "chesscom"
-        self.query_one("#older", Button).disabled = True
-        self.query_one("#newest", Button).disabled = True
+    def on_mount(self) -> None:
+        self.load_games()
 
     def set_busy(self, busy: bool) -> None:
         self.busy = busy
-        for selector in ("#provider", "#username", "#load", "#games"):
-            self.query_one(selector).disabled = busy
-        lichess = self.query_one("#provider", Select).value == "lichess"
-        self.query_one("#month", Select).disabled = busy or lichess or not self.archive_user
-        self.query_one("#older", Button).disabled = busy or not lichess or self.until is None
-        self.query_one("#newest", Button).disabled = busy or not lichess
+        self.query_one("#games", OptionList).disabled = busy
+        self.query_one("#reload", Button).disabled = busy
+        self.query_one("#newer", Button).disabled = busy or self.page_index == 0
+        pages = self.months if self.provider == "chess.com" else self.cursors
+        self.query_one("#older", Button).disabled = busy or self.page_index + 1 >= len(pages)
 
-    @on(Button.Pressed, "#load")
-    @on(Button.Pressed, "#newest")
-    @on(Input.Submitted, "#username")
-    def load_newest(self) -> None:
-        self.load_games()
+    def action_choose(self, direction: int) -> None:
+        if not self.busy and self.games:
+            options = self.query_one("#games", OptionList)
+            options.highlighted = ((options.highlighted or 0) + direction) % len(self.games)
+            options.focus()
+
+    @on(Button.Pressed, "#reload")
+    def action_reload(self) -> None:
+        if not self.busy:
+            self.load_games(self.page_index)
 
     @on(Button.Pressed, "#older")
-    def load_older(self) -> None:
-        if self.until is not None:
-            self.load_games(self.until)
+    def action_older(self) -> None:
+        pages = self.months if self.provider == "chess.com" else self.cursors
+        if not self.busy and self.page_index + 1 < len(pages):
+            self.load_games(self.page_index + 1)
+
+    @on(Button.Pressed, "#newer")
+    def action_newer(self) -> None:
+        if not self.busy and self.page_index > 0:
+            self.load_games(self.page_index - 1)
 
     @work(group="online", exclusive=True)
-    async def load_games(self, until: int | None = None) -> None:
+    async def load_games(self, index: int = 0) -> None:
         status = self.query_one("#browser-status", Static)
         status.update("Loading… · Esc cancels")
+        self.page_index = index
         self.set_busy(True)
         self.games = []
-        self.until = None
         options = self.query_one("#games", OptionList)
         options.clear_options()
         try:
-            username = validate_username(self.query_one("#username", Input).value)
-            provider = self.query_one("#provider", Select).value
-            if provider == "chesscom":
-                month = self.query_one("#month", Select)
-                if self.archive_user != username:
-                    months = await asyncio.to_thread(chesscom_months, username)
-                    month.set_options((value, value) for value in months)
-                    if not months:
-                        status.update("No public archive months for this username.")
-                        return
-                    month.value = months[0]
-                    self.archive_user = username
-                self.games = await asyncio.to_thread(chesscom_games, username, str(month.value))
+            if self.provider == "chess.com":
+                if not self.months:
+                    self.months = await asyncio.to_thread(chesscom_months, self.username)
+                if not self.months:
+                    status.update("No public archive months for this username.")
+                    return
+                month = self.months[index]
+                self.games = await asyncio.to_thread(chesscom_games, self.username, month)
+                heading = month
             else:
-                page = await asyncio.to_thread(lichess_games, username, until=until)
-                self.games, self.until = page.games, page.until
-            options.add_options(Option(Text(game.label), id=str(index))
-                                for index, game in enumerate(self.games))
+                page = await asyncio.to_thread(lichess_games, self.username, until=self.cursors[index])
+                self.games = page.games
+                self.cursors = self.cursors[:index + 1]
+                if page.until is not None:
+                    self.cursors.append(page.until)
+                heading = f"Page {index + 1}"
+            options.add_options(Option(Text(game.label), id=str(number))
+                                for number, game in enumerate(self.games))
             options.highlighted = 0 if self.games else None
-            status.update(f"{len(self.games)} completed standard games · Enter opens" if self.games
-                          else "No completed standard games here. Try another month or Older.")
+            status.update(f"{heading} · {len(self.games)} completed standard games" if self.games
+                          else f"{heading} · No completed standard games. → tries older games.")
         except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as exc:
-            status.update(Text(f"Could not list games: {exc}"))
+            status.update(Text(f"Could not list games: {exc} · r retries"))
         finally:
             if self.is_mounted and not get_current_worker().is_cancelled:
                 self.set_busy(False)
-        if self.is_mounted and self.games:
+        if self.is_mounted:
             options.focus()
+
+    def action_open_selected(self) -> None:
+        selected = self.query_one("#games", OptionList).highlighted
+        if not self.busy and selected is not None:
+            self.open_game(self.games[selected])
 
     @on(OptionList.OptionSelected, "#games")
     def game_selected(self, event: OptionList.OptionSelected) -> None:
@@ -138,5 +154,6 @@ class GameBrowser(AnalysisDialog):
         except (OSError, ValueError) as exc:
             status.update(Text(f"Could not import game: {exc}"))
             self.set_busy(False)
+            self.query_one("#games", OptionList).focus()
         else:
             self.dismiss(analysis)

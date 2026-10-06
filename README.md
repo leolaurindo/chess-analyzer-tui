@@ -27,7 +27,8 @@ chess-analyzer --file position.fen
 chess-analyzer --clip
 chess-analyzer --continue          # or: chess-analyzer -c
 chess-analyzer --library           # choose a saved analysis
-chess-analyzer --browse            # browse public Chess.com / Lichess games
+chess-analyzer --browse chess.com --user leolaurindo
+chess-analyzer --browse lichess --user leolaurindo
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
 
@@ -38,8 +39,8 @@ Pass quoted FEN or PGN text, a Chess.com game URL, a Lichess game or study URL, 
 an HTTPS URL that serves plain-text PGN. The examples include a Lichess study of
 Mikhail Tal and a regular Lichess game by Magnus Carlsen, plus a public Chess.com
 game by GM LPSupi. A game URL is sufficient for either provider; no username,
-month, or API key is required. Without a game link, use `--browse` to find games
-by username instead. Chess.com URL-only lookup uses an undocumented callback to
+month, or API key is required. Without a game link, use
+`--browse chess.com --user NAME` or `--browse lichess --user NAME` instead. Chess.com URL-only lookup uses an undocumented callback to
 resolve archive details, then downloads the PGN from a public monthly archive;
 if that callback becomes unavailable, use the browser, which uses documented
 APIs only. Use `--file`
@@ -55,7 +56,7 @@ Options:
 - `--clip` — load FEN or PGN from the clipboard
 - `--continue` / `-c` — restore the last analysis session
 - `--library` — interactively reopen a named local analysis
-- `--browse` — interactively browse completed public Chess.com / Lichess games
+- `--browse PROVIDER --user NAME` — browse public games; provider is `chess.com` or `lichess`
 - `--ascii` — use ASCII pieces
 - `--time 0.5` — set analysis time
 - `--lines 3` — show multiple lines
@@ -107,23 +108,30 @@ The library stores one JSON file per named analysis in:
 
 ## Online game browser
 
-Press **b** during analysis, or run `chess-analyzer --browse`. Choose Chess.com
-or Lichess, enter a public username, and select Load games (or Enter in the
-username field). No login, token storage, or play-token reuse is needed.
+Choose the provider and public username on the command line:
 
-- **Chess.com:** loads the latest archive month first. Choose another month and
-  Load games to browse older games. Public archives can lag due to caching.
-- **Lichess:** shows 50 games per page; Older continues backwards and Newest
-  returns to the latest page.
-- Choose a game with ↑/↓ and Enter. Only completed standard-chess games are
-  listed. The selected PGN opens for analysis, preserving its comments and
-  variations. Press **s** if you want to keep a named local copy.
-- Esc cancels without changing your analysis, including during a request.
+```sh
+chess-analyzer --browse chess.com --user leolaurindo
+chess-analyzer --browse lichess --user leolaurindo
+```
+
+Games load automatically; there are no provider, username, or month selectors.
+No login, token storage, or play-token reuse is needed.
+
+- **↑/↓** chooses a game; **Enter** opens it for analysis, preserving its PGN
+  comments and variations. Only completed standard-chess games are listed.
+- **←/→** browses newer/older games. Chess.com uses archive months, newest first;
+  Lichess uses pages of 50 games. Public Chess.com archives can lag due to caching.
+- **r** reloads the current month/page, including after a loading error.
+- **Esc** cancels without changing your analysis, including during a request.
+- After opening a game, **b** returns to this provider/username’s browser. This
+  shortcut is available only when the app was started with `--browse`.
+- Press **s** during analysis if you want to keep a named local copy.
 
 Requests are sequential, run off the UI thread, and have time/size limits. Rate
 limits are shown without automatic retries; wait at least a minute before retrying.
 Canceling discards a pending result; the underlying HTTP request can run until its
-timeout. Nothing is fetched until you ask to load games.
+timeout. Starting the browser automatically requests the latest games.
 
 `--browse` and `--library` restore the last session behind their menus when one
 exists, so canceling does not replace your continue snapshot with a new game.

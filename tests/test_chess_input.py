@@ -80,7 +80,7 @@ class UrlInputTests(unittest.TestCase):
                          {"game": {"pgnHeaders": {"Date": "2024.01.01"}}}):
             with (self.subTest(response=response), patch("chess_online._validate_url"),
                   patch("chess_online.fetch_text", return_value=json.dumps(response)) as fetch,
-                  self.assertRaisesRegex(SystemExit, "Try --browse by username")):
+                  self.assertRaisesRegex(SystemExit, "Try --browse chess.com --user NAME")):
                 chess_input.load_input("https://www.chess.com/game/live/1")
             self.assertEqual(fetch.call_count, 1)  # No archive search without valid details.
         with (patch("chess_online._validate_url"),

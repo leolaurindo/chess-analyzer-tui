@@ -95,8 +95,9 @@ class CliTests(unittest.TestCase):
                         ["--file", "game.pgn", chess.STARTING_FEN], ["-c", "--clip"],
                         ["--continue", "--file", "game.pgn"], ["-c", chess.STARTING_FEN],
                         ["--library", "--clip"], ["--library", "--continue"],
-                        ["--browse", "--library"], ["--browse", "--continue"],
-                        ["--browse", chess.STARTING_FEN]):
+                        ["--browse", "lichess", "--user", "Alice", "--library"],
+                        ["--browse", "lichess", "--user", "Alice", "--continue"],
+                        ["--browse", "lichess", "--user", "Alice", chess.STARTING_FEN]):
             with (
                 self.subTest(sources=sources),
                 patch("sys.argv", ["chess-analyzer", *sources]),
@@ -115,9 +116,10 @@ class CliTests(unittest.TestCase):
             analysis.current.comment = "Keep my note"
             save_session(analysis, path)
             previous = path.read_bytes()
-            for flag in ("--library", "--browse"):
+            for flag, source in (("--library", ["--library"]),
+                                 ("--browse", ["--browse", "lichess", "--user", "Alice"])):
                 with (self.subTest(flag=flag),
-                      patch("sys.argv", ["chess-analyzer", flag, "--engine", "stockfish"]),
+                      patch("sys.argv", ["chess-analyzer", *source, "--engine", "stockfish"]),
                       patch("chess_cli.session_path", return_value=path),
                       patch("chess_cli.run_app", new_callable=AsyncMock) as run):
                     main()
@@ -140,14 +142,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual([move.uci() for move in run.call_args.args[3].mainline_moves()],
                          ["e2e4", "d7d5"])
         with tempfile.TemporaryDirectory() as directory:
-            with (patch("sys.argv", ["chess-analyzer", "--browse", "--engine", "stockfish"]),
+            with (patch("sys.argv", ["chess-analyzer", "--browse", "chess.com", "--user", "Alice",
+                                     "--engine", "stockfish"]),
                   patch("chess_cli.session_path", return_value=Path(directory) / "absent.json"),
                   patch("chess_online.fetch_text") as fetch,
                   patch("chess_cli.run_app", new_callable=AsyncMock) as run):
                 main()
-            self.assertTrue(run.call_args.args[0].browse)
+            self.assertEqual(run.call_args.args[0].browse, "chess.com")
+            self.assertEqual(run.call_args.args[0].user, "Alice")
             self.assertIsNone(run.call_args.args[3])
             fetch.assert_not_called()
+
+    def test_browse_requires_provider_and_username_before_loading(self):
+        for flags in (["--browse"], ["--browse", "lichess"], ["--user", "Alice"],
+                      ["--browse", "other", "--user", "Alice"],
+                      ["--browse", "chess.com", "--user", "../Alice"],
+                      ["--browse", "lichess", "--user", ""]):
+            with (self.subTest(flags=flags), patch("sys.argv", ["chess-analyzer", *flags]),
+                  patch("chess_cli.load_input") as load,
+                  patch("chess_cli.find_stockfish") as engine,
+                  contextlib.redirect_stderr(io.StringIO()),
+                  self.assertRaises(SystemExit) as error):
+                main()
+            self.assertEqual(error.exception.code, 2)
+            load.assert_not_called()
+            engine.assert_not_called()
 
     def test_continue_reports_missing_or_corrupt_session(self):
         with tempfile.TemporaryDirectory() as directory:
