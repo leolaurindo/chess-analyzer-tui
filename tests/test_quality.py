@@ -3,7 +3,7 @@ import unittest
 import chess
 import chess.engine
 
-from chess_game import Candidate, Node, quality_label, winning_chances
+from chess_analyzer.game import Candidate, Node, quality_label, winning_chances
 
 
 class QualityTests(unittest.TestCase):

@@ -9,7 +9,7 @@ Set Padding 20
 Set WindowBar Colorful
 
 Env XDG_STATE_HOME "/tmp/chess-analyzer-vhs-state"
-Type "uv run python chess_cli.py --file demos/supi-vs-carlsen.pgn --time 0.3 --lines 5"
+Type "uv run chess-analyzer --file demos/supi-vs-carlsen.pgn --time 0.3 --lines 5"
 Enter
 Sleep 5s
 Down

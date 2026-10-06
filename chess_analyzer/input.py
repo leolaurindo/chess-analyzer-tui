@@ -9,7 +9,7 @@ import chess.pgn
 import pyperclip
 
 
-from chess_online import load_url
+from .online import load_url
 
 
 def player_name(value: str | None, fallback: str) -> str:

@@ -1,4 +1,4 @@
-"""Local analysis dialogs; persistence stays in chess_library/chess_session."""
+"""Local analysis dialogs; persistence stays in library/session."""
 from pathlib import Path
 
 from rich.text import Text
@@ -8,8 +8,8 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, OptionList, Static, TextArea
 
-from chess_game import Analysis
-from chess_library import SavedAnalysis, list_analyses, load_analysis, save_analysis
+from .game import Analysis
+from .library import SavedAnalysis, list_analyses, load_analysis, save_analysis
 
 
 class AnalysisDialog(ModalScreen):

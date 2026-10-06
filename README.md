@@ -162,7 +162,7 @@ PATH: add the executable’s directory to PATH and restart your shell if needed.
 Alternatively, pass an executable with `chess-analyzer --engine /path/to/stockfish`
 (on Windows: `chess-analyzer --engine "C:\path\to\stockfish.exe"`).
 
-Stockfish is found on PATH or beside the application module as `stockfish`
+Stockfish is found on PATH or alongside the application package as `stockfish`
 (`stockfish.exe` on Windows). Other UCI engines can be selected with
 `--engine /path/to/engine`—for example, Leela Chess Zero (Lc0) with
 `--engine /path/to/lc0`. Configure engine-specific files and settings, such as
@@ -242,6 +242,14 @@ The piece artwork and size-adaptive rendering approach are adapted from
 The artwork is used under the MIT License; the full notice is preserved in
 [licenses/chess-tui-MIT.txt](licenses/chess-tui-MIT.txt). The rest of this project
 is released under [MIT](LICENSE).
+
+## Development
+
+Application modules live in `chess_analyzer/`: `cli.py`, `tui.py`, `input.py`,
+`game.py`, `session.py`, `library.py`, `online.py`, `browser.py`, and `dialogs.py`.
+Piece artwork and the bundled opening dataset are also inside this package.
+Run from the checkout with `uv run chess-analyzer` or
+`uv run python -m chess_analyzer.cli`.
 
 ## Verify
 

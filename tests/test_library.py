@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import chess
 
-from chess_game import Analysis
-from chess_library import analysis_path, list_analyses, load_analysis, save_analysis
-from chess_session import write_json
+from chess_analyzer.game import Analysis
+from chess_analyzer.library import analysis_path, list_analyses, load_analysis, save_analysis
+from chess_analyzer.session import write_json
 
 
 class LibraryTests(unittest.TestCase):
@@ -39,7 +39,7 @@ class LibraryTests(unittest.TestCase):
                 path.write_bytes(previous)
                 write_json(path, data, **kwargs)
 
-            with patch("chess_library.write_json", side_effect=competing_save):
+            with patch("chess_analyzer.library.write_json", side_effect=competing_save):
                 with self.assertRaises(FileExistsError):
                     save_analysis(Analysis.from_input(chess.Board()), "Race", folder)
             self.assertEqual(path.read_bytes(), previous)

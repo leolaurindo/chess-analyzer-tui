@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, patch
 import chess
 import pyperclip
 
-from chess_cli import main
-from chess_game import Analysis
-from chess_input import parse_input
-from chess_session import save_session
+from chess_analyzer.cli import main
+from chess_analyzer.game import Analysis
+from chess_analyzer.input import parse_input
+from chess_analyzer.session import save_session
 
 
 class CliTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class CliTests(unittest.TestCase):
             with (
                 self.subTest(flag=flag),
                 patch("sys.argv", ["chess-analyzer", flag]),
-                patch("chess_cli.find_stockfish") as find_engine,
+                patch("chess_analyzer.cli.find_stockfish") as find_engine,
                 patch("pyperclip.paste") as paste,
                 contextlib.redirect_stdout(output),
                 self.assertRaises(SystemExit) as error,
@@ -50,7 +50,7 @@ class CliTests(unittest.TestCase):
                     self.subTest(source=source, contents=contents),
                     patch("sys.argv", ["chess-analyzer", *argv, "--engine", "stockfish"]),
                     patch("pyperclip.paste", return_value=contents),
-                    patch("chess_cli.run_app", new_callable=AsyncMock) as run,
+                    patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run,
                 ):
                     main()
                     _, board, _, moves, white, black = run.call_args.args
@@ -63,7 +63,7 @@ class CliTests(unittest.TestCase):
         with (
             patch("sys.argv", ["chess-analyzer", "--engine", "stockfish"]),
             patch("pyperclip.paste") as paste,
-            patch("chess_cli.run_app", new_callable=AsyncMock),
+            patch("chess_analyzer.cli.run_app", new_callable=AsyncMock),
         ):
             main()
             paste.assert_not_called()
@@ -82,7 +82,7 @@ class CliTests(unittest.TestCase):
                 self.subTest(contents=contents),
                 patch("sys.argv", ["chess-analyzer", "--clip"]),
                 patch("pyperclip.paste", side_effect=[contents]),
-                patch("chess_cli.run_app", new_callable=AsyncMock) as run,
+                patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run,
                 contextlib.redirect_stderr(io.StringIO()),
                 self.assertRaises(SystemExit) as error,
             ):
@@ -120,8 +120,8 @@ class CliTests(unittest.TestCase):
                                  ("--browse", ["--browse", "lichess", "--user", "Alice"])):
                 with (self.subTest(flag=flag),
                       patch("sys.argv", ["chess-analyzer", *source, "--engine", "stockfish"]),
-                      patch("chess_cli.session_path", return_value=path),
-                      patch("chess_cli.run_app", new_callable=AsyncMock) as run):
+                      patch("chess_analyzer.cli.session_path", return_value=path),
+                      patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run):
                     main()
                 self.assertEqual(run.call_args.kwargs["session"].current.comment, "Keep my note")
                 self.assertTrue(getattr(run.call_args.args[0], flag[2:]))
@@ -131,8 +131,8 @@ class CliTests(unittest.TestCase):
         url = "https://www.chess.com/game/live/4912555148"
         loaded = parse_input('[White "LPSupi"]\n[Black "MenuGarden"]\n\n1. e4 d5 *')
         with (patch("sys.argv", ["chess-analyzer", url, "--engine", "stockfish"]),
-              patch("chess_cli.load_input", return_value=loaded) as load,
-              patch("chess_cli.run_app", new_callable=AsyncMock) as run):
+              patch("chess_analyzer.cli.load_input", return_value=loaded) as load,
+              patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run):
             main()
         load.assert_called_once_with(url, file=None, clipboard=False)
         self.assertEqual(run.call_args.args[4:], ("LPSupi", "MenuGarden"))
@@ -141,9 +141,9 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with (patch("sys.argv", ["chess-analyzer", "--browse", "chess.com", "--user", "Alice",
                                      "--engine", "stockfish"]),
-                  patch("chess_cli.session_path", return_value=Path(directory) / "absent.json"),
-                  patch("chess_online.fetch_text") as fetch,
-                  patch("chess_cli.run_app", new_callable=AsyncMock) as run):
+                  patch("chess_analyzer.cli.session_path", return_value=Path(directory) / "absent.json"),
+                  patch("chess_analyzer.online.fetch_text") as fetch,
+                  patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run):
                 main()
             self.assertEqual(run.call_args.args[0].browse, "chess.com")
             self.assertEqual(run.call_args.args[0].user, "Alice")
@@ -156,8 +156,8 @@ class CliTests(unittest.TestCase):
                       ["--browse", "chess.com", "--user", "../Alice"],
                       ["--browse", "lichess", "--user", ""]):
             with (self.subTest(flags=flags), patch("sys.argv", ["chess-analyzer", *flags]),
-                  patch("chess_cli.load_input") as load,
-                  patch("chess_cli.find_stockfish") as engine,
+                  patch("chess_analyzer.cli.load_input") as load,
+                  patch("chess_analyzer.cli.find_stockfish") as engine,
                   contextlib.redirect_stderr(io.StringIO()),
                   self.assertRaises(SystemExit) as error):
                 main()
@@ -177,7 +177,7 @@ class CliTests(unittest.TestCase):
                 with (
                     self.subTest(flag=flag),
                     patch("sys.argv", ["chess-analyzer", flag]),
-                    patch("chess_cli.session_path", return_value=path),
+                    patch("chess_analyzer.cli.session_path", return_value=path),
                     patch("pyperclip.paste") as paste,
                     self.assertRaises(SystemExit) as error,
                 ):
@@ -217,7 +217,7 @@ class CliTests(unittest.TestCase):
             with (
                 self.subTest(system=system, release=release),
                 patch("sys.argv", ["chess-analyzer"]),
-                patch("chess_cli.find_stockfish", return_value=None),
+                patch("chess_analyzer.cli.find_stockfish", return_value=None),
                 patch("platform.system", return_value=system),
                 patch("platform.freedesktop_os_release", side_effect=[release]),
                 self.assertRaises(SystemExit) as error,

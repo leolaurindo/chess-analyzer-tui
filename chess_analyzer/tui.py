@@ -19,12 +19,12 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Footer, Header, Static
 
-from chess_browser import GameBrowser
-from chess_dialogs import CommentEditor, LibraryDialog, SaveAnalysisDialog
-from chess_game import Analysis, Candidate, Node, history_to_san
-from chess_library import SavedAnalysis, library_path
-from chess_openings import opening_label
-from piece_art import PIECE_ART
+from .browser import GameBrowser
+from .dialogs import CommentEditor, LibraryDialog, SaveAnalysisDialog
+from .game import Analysis, Candidate, Node, history_to_san
+from .library import SavedAnalysis, library_path
+from .openings import opening_label
+from .piece_art import PIECE_ART
 
 
 def side_label(color: str, name: str) -> str:

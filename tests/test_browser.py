@@ -8,10 +8,10 @@ import chess
 import chess.engine
 from textual.widgets import OptionList
 
-from chess_browser import GameBrowser
-from chess_cli import find_stockfish
-from chess_online import GamePage, OnlineGame
-from chess_tui import ChessAnalysisApp
+from chess_analyzer.browser import GameBrowser
+from chess_analyzer.cli import find_stockfish
+from chess_analyzer.online import GamePage, OnlineGame
+from chess_analyzer.tui import ChessAnalysisApp
 
 
 PGN = '[White "Alice"]\n[Black "Bob"]\n[Result "1-0"]\n\n{Introduction} 1. e4 {Pawn} e5 (1... c5 {Sicilian}) 1-0'
@@ -47,12 +47,12 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
             app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3,
                                    browse_provider=provider, browse_user="Alice")
             with (self.subTest(provider=provider),
-                  patch("chess_browser.chesscom_months", return_value=["2024-01", "2023-12"]),
-                  patch("chess_browser.chesscom_games", side_effect=lambda user, month:
+                  patch("chess_analyzer.browser.chesscom_months", return_value=["2024-01", "2023-12"]),
+                  patch("chess_analyzer.browser.chesscom_games", side_effect=lambda user, month:
                         recent if month == "2024-01" else listed) as monthly,
-                  patch("chess_browser.lichess_games", side_effect=lambda user, until:
+                  patch("chess_analyzer.browser.lichess_games", side_effect=lambda user, until:
                         GamePage(recent, 123) if until is None else GamePage(listed, None)) as paged,
-                  patch("chess_browser.lichess_pgn", return_value=games[1].pgn) as export):
+                  patch("chess_analyzer.browser.lichess_pgn", return_value=games[1].pgn) as export):
                 async with app.run_test(size=(40, 24)) as pilot:
                     previous = app.analysis
                     browser = app.screen
@@ -101,7 +101,7 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
 
         app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3,
                                browse_provider="chess.com", browse_user="Alice")
-        with patch("chess_browser.chesscom_months", side_effect=ValueError("Rate limited")):
+        with patch("chess_analyzer.browser.chesscom_months", side_effect=ValueError("Rate limited")):
             async with app.run_test() as pilot:
                 previous = app.analysis
                 previous.current.comment = "Unsaved note"
@@ -110,7 +110,7 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
                     while "Rate limited" not in browser.query_one("#browser-status").render().plain:
                         await pilot.pause()
                 await asyncio.wait_for(failed(), timeout=3)
-                with patch("chess_browser.chesscom_months", side_effect=blocked):
+                with patch("chess_analyzer.browser.chesscom_months", side_effect=blocked):
                     await pilot.press("r")
                     self.assertTrue(await asyncio.to_thread(started.wait, 1))
                     try:

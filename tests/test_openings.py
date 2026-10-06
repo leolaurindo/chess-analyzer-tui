@@ -2,7 +2,7 @@ import unittest
 
 import chess
 
-from chess_openings import opening_label
+from chess_analyzer.openings import opening_label
 
 
 class OpeningTests(unittest.TestCase):
