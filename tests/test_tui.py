@@ -34,16 +34,14 @@ async def wait_for_analysis(app, pilot):
 
 
 class BadgeTests(unittest.TestCase):
-    def test_labels_have_padded_backgrounds_and_contrasting_text(self):
-        colors = {"Best": "#22d3ee", "Excellent": "#22d3ee", "Good": "#4ade80",
-                  "Inaccuracy": "#9ca3af", "Mistake": "#facc15", "Blunder": "#ef4444"}
-        for label, color in colors.items():
+    def test_labels_are_bracketed_uppercase_and_monochrome(self):
+        for label in ("Best", "Excellent", "Good", "Inaccuracy", "Mistake", "Blunder"):
             with self.subTest(label=label):
                 badge = quality_badge(label)
-                self.assertEqual(badge.plain, f" {label} ")
+                self.assertEqual(badge.plain, f"[{label.upper()}]")
                 style = badge.get_style_at_offset(Console(), 1)
-                self.assertEqual(style.bgcolor.name, color)
-                self.assertEqual(style.color.name, "black")
+                self.assertEqual(style.bgcolor.name, "#ffffff")
+                self.assertEqual(style.color.name, "#161b22")
                 self.assertFalse(style.reverse)
 
 
@@ -233,22 +231,23 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
         app = ChessAnalysisApp(board, self.engine, 0.05, 1, game=game)
         async with app.run_test() as pilot:
             await wait_for_analysis(app, pilot)
-            self.assertIn("Qh4# · Best", app.query_one("#move-quality").render().plain)
+            self.assertIn("Qh4# · [BEST]", app.query_one("#move-quality").render().plain)
             app.action_game_position(3)
             async def graded():
                 while "Unrated" in app.query_one("#move-quality").render().plain:
                     await pilot.pause()
             await asyncio.wait_for(graded(), timeout=4)
-            self.assertIn("g4 · Blunder", app.query_one("#move-quality").render().plain)
-            self.assertIn("g4 Blunder", app.query_one("#history").render().plain)
-            for selector, label, color, action in (
-                ("#move-quality", "Blunder", "#ef4444", None),
-                ("#history", "Blunder", "#ef4444", "app.game_position(3)"),
-                ("#candidates", "Best", "#22d3ee", "app.follow_choice(0)"),
+            self.assertIn("g4 · [BLUNDER]", app.query_one("#move-quality").render().plain)
+            self.assertIn("g4 [BLUNDER]", app.query_one("#history").render().plain)
+            for selector, label, action in (
+                ("#move-quality", "[BLUNDER]", None),
+                ("#history", "[BLUNDER]", "app.game_position(3)"),
+                ("#candidates", "[BEST]", "app.follow_choice(0)"),
             ):
                 text = app.query_one(selector).render()
                 style = next(segment.style for segment in text.render_segments() if label in segment.text)
-                self.assertEqual(style.bgcolor.name, color)
+                self.assertEqual(style.bgcolor.name, "#ffffff")
+                self.assertEqual(style.color.name, "#161b22")
                 self.assertFalse(style.reverse)
                 if action:
                     self.assertEqual(style.meta["@click"], action)
@@ -256,9 +255,9 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("left")
             await wait_for_analysis(app, pilot)
             self.assertIn("g4", app.query_one("#candidates").render().plain)
-            self.assertIn("Blunder", app.query_one("#candidates").render().plain)
+            self.assertIn("[BLUNDER]", app.query_one("#candidates").render().plain)
             await pilot.press("f")
-            self.assertIn("Blunder", app.query_one("#candidates").render().plain)
+            self.assertIn("[BLUNDER]", app.query_one("#candidates").render().plain)
 
     async def test_pgn_navigation_and_exploration(self):
         board, moves, white_name, black_name = parse_input(

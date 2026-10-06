@@ -173,8 +173,8 @@ and multiple-line settings only when the engine supports them.
 
 Scored candidate moves, reviewed original-game moves, and the last played move
 show **Best**, **Excellent**, **Good**, **Inaccuracy**, **Mistake**, or **Blunder**.
-Labels use compact colored-background badges: Best/Excellent are cyan, Good is
-green, Inaccuracy is gray, Mistake is yellow, and Blunder is red.
+Labels use compact uppercase badges such as `[BEST]` and `[BLUNDER]`, with a
+white background and text matching the dark analysis-panel background.
 Best is the engine's top move; other moves are classified by the estimated
 winning-chance loss compared with that move, from the moving player's perspective:
 

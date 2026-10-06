@@ -27,15 +27,9 @@ from .openings import opening_label
 from .piece_art import PIECE_ART
 
 
-QUALITY_COLORS = {
-    "Best": "#22d3ee", "Excellent": "#22d3ee", "Good": "#4ade80",
-    "Inaccuracy": "#9ca3af", "Mistake": "#facc15", "Blunder": "#ef4444",
-}
-
-
 def quality_badge(label: str) -> Text:
-    return Text(f" {label} ", style=Style(
-        color="black", bgcolor=QUALITY_COLORS[label], bold=True, reverse=False,
+    return Text(f"[{label.upper()}]", style=Style(
+        color="#161b22", bgcolor="#ffffff", bold=True, reverse=False,
     ))
 
 
@@ -287,8 +281,8 @@ class ChessAnalysisApp(App):
         quality_panel = self.query_one("#move-quality", Static)
         quality_panel.display = node.parent is not None
         san = node.parent.board.san(node.move_from_parent) if node.parent else ""
-        last_move = Text(f"Last move · {san} ·", style="bold")
-        last_move.append(quality_badge(quality) if quality else " Unrated")
+        last_move = Text(f"Last move · {san} · ", style="bold")
+        last_move.append(quality_badge(quality) if quality else "Unrated")
         quality_panel.update(last_move)
         return_link = self.query_one("#return-game", Static)
         return_link.display = self.analysis.return_position is not None
@@ -314,7 +308,7 @@ class ChessAnalysisApp(App):
             ))
             quality = node.quality(move)
             if quality:
-                row.append(" ·").append(quality_badge(quality))
+                row.append(" · ").append(quality_badge(quality))
             lines.append(row).append("\n")
         lines.append("→ / Enter follows selection\n", style="dim")
         if board.is_game_over():
@@ -369,7 +363,7 @@ class ChessAnalysisApp(App):
                 ))
                 quality = parent.quality(cursor.move_from_parent)
                 if quality:
-                    entry.append(quality_badge(quality))
+                    entry.append(" ").append(quality_badge(quality))
                 history.append(entry)
             if not node.is_mainline:
                 history.append("\n\nExplored line\n", style="bold #58a6ff")
