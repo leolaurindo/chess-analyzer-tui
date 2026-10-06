@@ -188,7 +188,8 @@ class ChessAnalysisApp(App):
         width: 1fr; min-width: 27; border: round #30363d;
         background: #161b22; padding: 0 1;
     }
-    #position-info, #engine-title { text-style: bold; }
+    #position-info, #engine-title, .player-name { text-style: bold; }
+    .player-name { color: #c9d1d9; }
     #board-area, #board {
         width: 1fr; height: 1fr; min-height: 9; content-align: center middle;
     }
@@ -218,13 +219,16 @@ class ChessAnalysisApp(App):
 
     def __init__(self, board: chess.Board, engine: chess.engine.UciProtocol,
                  think_time: float, multipv: int, ascii_pieces: bool = False,
-                 moves: list[chess.Move] | None = None, engine_name: str = "Engine"):
+                 moves: list[chess.Move] | None = None, engine_name: str = "Engine",
+                 white_name: str = "White", black_name: str = "Black"):
         super().__init__()
         self.engine = engine
         self.think_time = think_time
         self.multipv = multipv
         self.ascii_pieces = ascii_pieces
         self.engine_name = engine_name
+        self.white_name = white_name
+        self.black_name = black_name
         self.has_pgn = moves is not None
         self.root = Node(board.copy(), is_mainline=self.has_pgn)
         self.current = self.root
@@ -241,9 +245,11 @@ class ChessAnalysisApp(App):
         with Horizontal(id="main"):
             with Vertical(id="board-side"):
                 yield Static(id="position-info")
+                yield Static(id="top-player", classes="player-name")
                 with Horizontal(id="board-area"):
                     yield ChessBoard(id="board")
                     yield EvaluationBar(id="evaluation-bar")
+                yield Static(id="bottom-player", classes="player-name")
                 yield Static(id="fen")
             with VerticalScroll(id="analysis-side"):
                 for name in ("engine-title", "return-game", "candidates", "pv", "history", "status"):
@@ -293,6 +299,16 @@ class ChessAnalysisApp(App):
     def refresh_board(self) -> None:
         self.query_one("#board", ChessBoard).refresh()
         self.query_one("#evaluation-bar", EvaluationBar).refresh()
+        top_color, top_name, bottom_color, bottom_name = (
+            ("White", self.white_name, "Black", self.black_name) if self.flipped
+            else ("Black", self.black_name, "White", self.white_name)
+        )
+        self.query_one("#top-player", Static).update(
+            top_color if top_name == top_color else f"{top_color} · {top_name}"
+        )
+        self.query_one("#bottom-player", Static).update(
+            bottom_color if bottom_name == bottom_color else f"{bottom_color} · {bottom_name}"
+        )
 
     def refresh_analysis_panel(self) -> None:
         node = self.current
@@ -460,7 +476,8 @@ class ChessAnalysisApp(App):
         self.analyze_node(self.current)
 
 
-async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.Move]) -> None:
+async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.Move],
+                  white_name: str, black_name: str) -> None:
     transport, engine = await chess.engine.popen_uci(engine_path)
     try:
         settings = {}
@@ -482,7 +499,8 @@ async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.
                 multipv = min(multipv, multipv_option.max)
         engine_name = engine.id.get("name") or Path(engine_path).name
         app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
-                               moves=moves if args.pgn else None, engine_name=engine_name)
+                               moves=moves if args.pgn else None, engine_name=engine_name,
+                               white_name=white_name, black_name=black_name)
         await app.run_async()
     finally:
         try:
@@ -491,7 +509,12 @@ async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.
             transport.close()
 
 
-def load_pgn(path: str) -> tuple[chess.Board, list[chess.Move]]:
+def player_name(value: str | None, fallback: str) -> str:
+    name = (value or "").strip()
+    return fallback if name in {"", "?"} else name
+
+
+def load_pgn(path: str) -> tuple[chess.Board, list[chess.Move], str, str]:
     try:
         with open(path, encoding="utf-8") as pgn_file:
             game = chess.pgn.read_game(pgn_file)
@@ -501,7 +524,9 @@ def load_pgn(path: str) -> tuple[chess.Board, list[chess.Move]]:
         raise SystemExit("The PGN file does not contain a game.")
     if game.errors:
         raise SystemExit(f"Could not parse PGN: {game.errors[0]}")
-    return game.board(), list(game.mainline_moves())
+    return (game.board(), list(game.mainline_moves()),
+            player_name(game.headers.get("White"), "White"),
+            player_name(game.headers.get("Black"), "Black"))
 
 
 def main() -> None:
@@ -510,6 +535,8 @@ def main() -> None:
     )
     parser.add_argument("fen", nargs="?", help="FEN position (mutually exclusive with --pgn)")
     parser.add_argument("--pgn", help="PGN file to analyze from its final position")
+    parser.add_argument("--white", help="White player's display name (overrides PGN header)")
+    parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
     parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
     parser.add_argument("-n", "--lines", type=int, default=5, help="Number of engine continuations")
     parser.add_argument("--threads", type=int, default=2, help="Engine threads (if supported)")
@@ -525,19 +552,22 @@ def main() -> None:
         parser.error("provide either a FEN or --pgn, not both")
     moves = []
     if args.pgn:
-        board, moves = load_pgn(args.pgn)
+        board, moves, pgn_white, pgn_black = load_pgn(args.pgn)
     else:
+        pgn_white, pgn_black = "White", "Black"
         try:
             board = chess.Board(args.fen or chess.STARTING_FEN)
         except ValueError as exc:
             raise SystemExit(f"Invalid FEN: {exc}") from exc
+    white_name = player_name(args.white, pgn_white)
+    black_name = player_name(args.black, pgn_black)
     if not board.is_valid():
         raise SystemExit("The starting position is invalid.")
     engine_path = args.engine or find_stockfish()
     if not engine_path:
         raise SystemExit(missing_engine_message())
     try:
-        asyncio.run(run_app(args, board, engine_path, moves))
+        asyncio.run(run_app(args, board, engine_path, moves, white_name, black_name))
     except (OSError, chess.engine.EngineError, asyncio.TimeoutError) as exc:
         raise SystemExit(f"Engine error: {exc}") from exc
 

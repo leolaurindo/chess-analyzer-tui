@@ -76,14 +76,21 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
     async def test_pgn_navigation_and_exploration(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "game.pgn"
-            path.write_text('[Event "Test"]\n\n1. e4 h5 *\n', encoding="utf-8")
-            board, moves = load_pgn(path)
+            path.write_text('[Event "Test"]\n[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *\n', encoding="utf-8")
+            board, moves, white_name, black_name = load_pgn(path)
         final = board.copy()
         for move in moves:
             final.push(move)
-        app = ChessAnalysisApp(board, self.engine, 0.05, 3, moves=moves)
+        app = ChessAnalysisApp(board, self.engine, 0.05, 3, moves=moves,
+                               white_name=white_name, black_name=black_name)
         async with app.run_test(size=(120, 42)) as pilot:
             await app.workers.wait_for_complete()
+            self.assertEqual(app.query_one("#top-player").render().plain, "Black · Carlsen")
+            self.assertEqual(app.query_one("#bottom-player").render().plain, "White · Supi")
+            await pilot.press("f")
+            self.assertEqual(app.query_one("#top-player").render().plain, "White · Supi")
+            self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · Carlsen")
+            await pilot.press("f")
             await pilot.press("right", "enter")
             self.assertEqual(app.current.board.fen(), final.fen())  # Stop at the PGN's end.
             app.think_time = 30

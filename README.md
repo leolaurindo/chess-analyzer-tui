@@ -30,6 +30,7 @@ Options:
 - `--threads 2` — set engine threads, if supported
 - `--hash 256` — set engine hash size, if supported
 - `--engine /path/to/engine` — choose a UCI engine executable
+- `--white "Supi"` / `--black "Carlsen"` — label the players (override PGN names)
 
 ## Stockfish
 
@@ -59,7 +60,8 @@ thread, hash, and multiple-line settings only when the engine supports them.
 
 ## Navigation
 
-PGNs open at the final position.
+PGNs open at the final position and use their `White`/`Black` headers for player labels
+when present. Use `--white` and `--black` to set or override names, including for FENs.
 
 - **↑/↓** — choose an original move or engine alternative
 - **→/Enter** — follow the selected move; **←** — step back
