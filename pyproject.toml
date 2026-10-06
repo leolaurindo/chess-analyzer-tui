@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "chess-analyzer"
+name = "chess-analyzer-tui"
 version = "0.1.0"
-description = "Interactive terminal chess analysis with Stockfish."
+description = "Terminal chess analysis TUI with Stockfish."
 readme = "README.md"
 license-files = ["licenses/chess-tui-MIT.txt"]
 requires-python = ">=3.11"

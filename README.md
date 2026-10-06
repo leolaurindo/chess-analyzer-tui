@@ -1,6 +1,6 @@
-# Chess analyzer
+# Chess Analyzer TUI
 
-Terminal chess analysis, with Stockfish as the default engine.
+Interactive terminal chess analysis, with Stockfish as the default engine.
 
 Piece rendering adapted from [Thomas Mauran's chess-tui](https://github.com/thomas-mauran/chess-tui).
 Full renderer credits and license information are below.
@@ -9,8 +9,11 @@ Full renderer credits and license information are below.
 
 Requires Python 3.11+.
 
+Once published on PyPI, install the `chess-analyzer-tui` package with either tool
+manager. Both install the `chess-analyzer` command:
+
 ```sh
-uv tool install .      # or: pipx install .
+uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
 chess-analyzer
 chess-analyzer --pgn game.pgn
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
@@ -18,7 +21,8 @@ chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2
 
 The command works from any directory. If it isn't on PATH, use
 `uv tool update-shell` (or `pipx ensurepath`) and restart your shell.
-For development without a tool install: `uv run chess-analyzer`.
+For development without a published package: `uv run chess-analyzer`.
+To test a local tool install before publishing: `uv tool install .` (or `pipx install .`).
 
 Alternatively, pass a quoted FEN.
 
