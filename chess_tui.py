@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import chess
@@ -180,8 +181,10 @@ class ChessAnalysisApp(App):
     def __init__(self, board: chess.Board, engine: chess.engine.UciProtocol,
                  think_time: float, multipv: int, ascii_pieces: bool = False,
                  moves: list[chess.Move] | None = None, engine_name: str = "Engine",
-                 white_name: str = "White", black_name: str = "Black"):
+                 white_name: str = "White", black_name: str = "Black",
+                 on_session_change: Callable[[ChessAnalysisApp], None] | None = None):
         super().__init__()
+        self.on_session_change = on_session_change
         self.engine = engine
         self.think_time = think_time
         self.multipv = multipv
@@ -221,6 +224,11 @@ class ChessAnalysisApp(App):
         self.refresh_ui()
         self.analyze_requested_position()
         self.analysis_loop()
+        self.save_session()
+
+    def save_session(self) -> None:
+        if self.on_session_change is not None:
+            self.on_session_change(self)
 
     def on_resize(self, event: Resize) -> None:
         self.screen.set_class(event.size.width < 64, "narrow")
@@ -432,6 +440,7 @@ class ChessAnalysisApp(App):
         self.refresh_ui()
         self.query_one("#candidates").scroll_visible(animate=False)
         self.analyze_requested_position()
+        self.save_session()
 
     def action_return_to_game(self) -> None:
         if self.return_position:
@@ -450,6 +459,7 @@ class ChessAnalysisApp(App):
     def action_flip_board(self) -> None:
         self.flipped = not self.flipped
         self.refresh_board()
+        self.save_session()
 
     def action_reanalyze(self) -> None:
         self.current.analyzed = False

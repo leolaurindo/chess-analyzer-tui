@@ -22,7 +22,7 @@ class CliTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "position.txt"
-            for case, source in product(cases, ("text", "file", "--clip", "-c")):
+            for case, source in product(cases, ("text", "file", "--clip")):
                 contents, expected_fen, expected_moves, names = case
                 path.write_text(contents, encoding="utf-8-sig")
                 argv = {"text": [contents], "file": ["--file", str(path)]}.get(source, [source])
@@ -60,7 +60,7 @@ class CliTests(unittest.TestCase):
         for contents, message in cases:
             with (
                 self.subTest(contents=contents),
-                patch("sys.argv", ["chess-analyzer", "-c"]),
+                patch("sys.argv", ["chess-analyzer", "--clip"]),
                 patch("pyperclip.paste", side_effect=[contents]),
                 patch("chess_cli.run_app", new_callable=AsyncMock) as run,
                 contextlib.redirect_stderr(io.StringIO()),
@@ -71,8 +71,9 @@ class CliTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_input_sources_are_mutually_exclusive(self):
-        for sources in (["-c", chess.STARTING_FEN], ["-c", "--file", "game.pgn"],
-                        ["--file", "game.pgn", chess.STARTING_FEN]):
+        for sources in (["--clip", chess.STARTING_FEN], ["--clip", "--file", "game.pgn"],
+                        ["--file", "game.pgn", chess.STARTING_FEN], ["-c", "--clip"],
+                        ["--continue", "--file", "game.pgn"], ["-c", chess.STARTING_FEN]):
             with (
                 self.subTest(sources=sources),
                 patch("sys.argv", ["chess-analyzer", *sources]),
@@ -83,6 +84,28 @@ class CliTests(unittest.TestCase):
                 main()
             self.assertEqual(error.exception.code, 2)
             paste.assert_not_called()
+
+    def test_continue_reports_missing_or_corrupt_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            for flag, contents, message in (
+                ("-c", None, "No saved analysis found"),
+                ("--continue", "not json", "Could not restore saved analysis"),
+            ):
+                if contents is not None:
+                    path.write_text(contents, encoding="utf-8")
+                with (
+                    self.subTest(flag=flag),
+                    patch("sys.argv", ["chess-analyzer", flag]),
+                    patch("chess_cli.session_path", return_value=path),
+                    patch("pyperclip.paste") as paste,
+                    self.assertRaises(SystemExit) as error,
+                ):
+                    main()
+                self.assertIn(message, str(error.exception))
+                paste.assert_not_called()
+                if contents is not None:
+                    self.assertEqual(path.read_text(encoding="utf-8"), contents)
 
     def test_unreadable_file_reports_an_error(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -13,6 +13,7 @@ import chess
 import chess.engine
 
 from chess_input import load_input, player_name
+from chess_session import Session, load_session, save_session, session_path
 from chess_tui import ChessAnalysisApp
 
 
@@ -56,7 +57,7 @@ def missing_engine_message() -> str:
 
 
 async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.Move] | None,
-                  white_name: str, black_name: str) -> None:
+                  white_name: str, black_name: str, *, session: Session | None = None) -> None:
     transport, engine = await chess.engine.popen_uci(engine_path)
     try:
         settings = {}
@@ -77,9 +78,24 @@ async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.
             if multipv_option.max is not None:
                 multipv = min(multipv, multipv_option.max)
         engine_name = engine.id.get("name") or Path(engine_path).name
+        path = session_path()
+
+        def persist(app: ChessAnalysisApp) -> None:
+            try:
+                save_session(app, path)
+            except OSError as exc:
+                app.notify(f"Could not save analysis: {exc}", severity="warning")
+
         app = ChessAnalysisApp(board, engine, args.time, multipv, args.ascii,
                                moves=moves, engine_name=engine_name,
-                               white_name=white_name, black_name=black_name)
+                               white_name=white_name, black_name=black_name,
+                               on_session_change=persist)
+        if session is not None:
+            app.root = session.root
+            app.current = session.current
+            app.return_position = session.return_position
+            app.has_pgn = session.root.is_mainline
+            app.flipped = session.flipped
         await app.run_async()
     finally:
         try:
@@ -95,8 +111,10 @@ def main() -> None:
     source = parser.add_mutually_exclusive_group()
     source.add_argument("input", nargs="?", help="FEN position or PGN text")
     source.add_argument("--file", help="Read FEN or PGN from a UTF-8 file")
-    source.add_argument("-c", "--clip", action="store_true",
+    source.add_argument("--clip", action="store_true",
                         help="Analyze FEN or PGN from the clipboard")
+    source.add_argument("-c", "--continue", dest="continue_session", action="store_true",
+                        help="Restore the last analysis session")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
     parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
     parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
@@ -110,7 +128,12 @@ def main() -> None:
         parser.error("--time must be a positive, finite number")
     if min(args.lines, args.threads, args.hash) < 1:
         parser.error("--lines, --threads and --hash must be positive")
-    board, moves, pgn_white, pgn_black = load_input(args.input, file=args.file, clipboard=args.clip)
+    session = load_session(session_path()) if args.continue_session else None
+    if session is not None:
+        board, moves = session.root.board, None
+        pgn_white, pgn_black = session.white_name, session.black_name
+    else:
+        board, moves, pgn_white, pgn_black = load_input(args.input, file=args.file, clipboard=args.clip)
     white_name = player_name(args.white, pgn_white)
     black_name = player_name(args.black, pgn_black)
     if not board.is_valid():
@@ -119,7 +142,7 @@ def main() -> None:
     if not engine_path:
         raise SystemExit(missing_engine_message())
     try:
-        asyncio.run(run_app(args, board, engine_path, moves, white_name, black_name))
+        asyncio.run(run_app(args, board, engine_path, moves, white_name, black_name, session=session))
     except (OSError, chess.engine.EngineError, asyncio.TimeoutError) as exc:
         raise SystemExit(f"Engine error: {exc}") from exc
 
