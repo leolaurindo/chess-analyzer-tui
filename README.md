@@ -21,7 +21,7 @@ chess-analyzer # opens a new game
 chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
 chess-analyzer https://lichess.org/nrmBGiQF
 chess-analyzer https://lichess.org/study/r072zv4F/R33cxdop
-chess-analyzer https://www.chess.com/game/live/4912555148 --chesscom-user LPSupi --chesscom-month 2020-05
+chess-analyzer https://www.chess.com/game/live/4912555148
 chess-analyzer --file game.pgn
 chess-analyzer --file position.fen
 chess-analyzer --clip
@@ -37,13 +37,16 @@ The command works from any directory. If it isn't on PATH, use
 Pass quoted FEN or PGN text, a Chess.com game URL, a Lichess game or study URL, or
 an HTTPS URL that serves plain-text PGN. The examples include a Lichess study of
 Mikhail Tal and a regular Lichess game by Magnus Carlsen, plus a public Chess.com
-game by GM LPSupi. Chess.com game URLs require the archive username and month
-(`--chesscom-user NAME --chesscom-month YYYY-MM`): the documented public API has
-no direct lookup by game ID. No undocumented callbacks or website scraping are
-used. Use `--file`
+game by GM LPSupi. A game URL is sufficient for either provider; no username,
+month, or API key is required. Without a game link, use `--browse` to find games
+by username instead. Chess.com URL-only lookup uses an undocumented callback to
+resolve archive details, then downloads the PGN from a public monthly archive;
+if that callback becomes unavailable, use the browser, which uses documented
+APIs only. Use `--file`
 to read a UTF-8 file or `--clip` to read the clipboard. Choose one input source;
 the format is detected automatically. URL loads
-are limited to public HTTPS hosts, 4 MiB, and a 10-second request timeout. Without
+are limited to public HTTPS hosts and a 10-second timeout per request. Generic
+downloads are capped at 4 MiB; Chess.com monthly archives at 16 MiB. Without
 input, analysis starts from the initial position.
 
 Options:
@@ -53,7 +56,6 @@ Options:
 - `--continue` / `-c` — restore the last analysis session
 - `--library` — interactively reopen a named local analysis
 - `--browse` — interactively browse completed public Chess.com / Lichess games
-- `--chesscom-user NAME` / `--chesscom-month YYYY-MM` — archive context for a Chess.com game URL
 - `--ascii` — use ASCII pieces
 - `--time 0.5` — set analysis time
 - `--lines 3` — show multiple lines

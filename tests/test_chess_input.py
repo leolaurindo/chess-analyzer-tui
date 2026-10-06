@@ -46,29 +46,47 @@ class UrlInputTests(unittest.TestCase):
         self.assertEqual([move.uci() for move in moves.mainline_moves()], ["c2c4", "g8f6", "g2g3", "e7e6"])
         self.assertEqual(board.fen(), chess_input.chess.STARTING_FEN)
 
-    def test_chesscom_url_looks_up_exact_game_in_specified_public_archive(self):
-        data = {"games": [{"rules": "chess", "url": "https://www.chess.com/game/live/4912555148",
-                           "end_time": 1590550000, "white": {"username": "LPSupi"},
-                           "black": {"username": "MenuGarden"}, "pgn": CHESSCOM_PGN}]}
+    def test_chesscom_url_alone_resolves_details_and_imports_exact_game(self):
+        callback = json.dumps({"game": {"pgnHeaders": {
+            "Date": "2020.05.27", "White": "LPSupi", "Black": "MenuGarden"}}})
+        other_game = CHESSCOM_PGN.replace("4912555148", "49125551480")
         with (patch("chess_online._validate_url"),
-              patch("chess_online.fetch_text", return_value=json.dumps(data)) as fetch):
+              patch("chess_online.fetch_text", side_effect=[callback, other_game + "\n" + CHESSCOM_PGN]) as fetch):
             board, moves, white, black = chess_input.load_input(
-                "https://www.chess.com/game/live/4912555148",
-                chesscom_user="LPSupi", chesscom_month="2020-05",
+                "https://www.chess.com/game/live/4912555148"
             )
-        self.assertEqual(fetch.call_args.args[0],
-                         "https://api.chess.com/pub/player/LPSupi/games/2020/05")
+        self.assertEqual(fetch.call_args_list[0].args[0],
+                         "https://www.chess.com/callback/live/game/4912555148")
+        self.assertEqual(fetch.call_args_list[1].args[0],
+                         "https://api.chess.com/pub/player/LPSupi/games/2020/05/pgn")
         self.assertEqual((white, black), ("LPSupi", "MenuGarden"))
+        self.assertEqual(moves.headers["Link"], "https://www.chess.com/game/live/4912555148")
         self.assertEqual([move.uci() for move in moves.mainline_moves()],
                          ["e2e4", "d7d5", "e4d5", "d8d5"])
         self.assertEqual(board.fen(), chess_input.chess.STARTING_FEN)
 
-    def test_chesscom_url_without_context_explains_browser_without_fetching_game(self):
+    def test_chesscom_url_tries_other_players_archive_when_first_has_no_match(self):
+        callback = json.dumps({"game": {"pgnHeaders": {
+            "Date": "2020.05.27", "White": "LPSupi", "Black": "MenuGarden"}}})
         with (patch("chess_online._validate_url"),
-              patch("chess_online.fetch_text") as fetch,
-              self.assertRaisesRegex(SystemExit, "--chesscom-user")):
-            chess_input.load_input("https://www.chess.com/game/live/4912555148")
-        fetch.assert_not_called()
+              patch("chess_online.fetch_text", side_effect=[callback, "", CHESSCOM_PGN]) as fetch):
+            _, game, _, _ = chess_input.load_input("https://www.chess.com/live/game/4912555148")
+        self.assertEqual(game.headers["Link"], "https://www.chess.com/game/live/4912555148")
+        self.assertEqual(fetch.call_args_list[-1].args[0],
+                         "https://api.chess.com/pub/player/MenuGarden/games/2020/05/pgn")
+
+    def test_chesscom_callback_failures_explain_username_browsing_fallback(self):
+        for response in ({}, {"game": {"pgnHeaders": {"Date": "bad", "White": "Alice"}}},
+                         {"game": {"pgnHeaders": {"Date": "2024.01.01"}}}):
+            with (self.subTest(response=response), patch("chess_online._validate_url"),
+                  patch("chess_online.fetch_text", return_value=json.dumps(response)) as fetch,
+                  self.assertRaisesRegex(SystemExit, "Try --browse by username")):
+                chess_input.load_input("https://www.chess.com/game/live/1")
+            self.assertEqual(fetch.call_count, 1)  # No archive search without valid details.
+        with (patch("chess_online._validate_url"),
+              patch("chess_online.fetch_text", side_effect=ValueError("Rate limited")),
+              self.assertRaisesRegex(SystemExit, "Rate limited.*Try --browse")):
+            chess_input.load_input("https://www.chess.com/game/live/1")
 
     def test_lichess_study_chapter_url_uses_pgn_export(self):
         url = "https://lichess.org/study/r072zv4F/R33cxdop"

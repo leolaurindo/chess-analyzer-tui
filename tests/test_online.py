@@ -65,9 +65,10 @@ class ProviderTests(unittest.TestCase):
                     load()
             fetch.assert_not_called()
         with (patch("chess_online._validate_url"),
-              patch("chess_online.fetch_text", return_value='{"games":[]}'),
+              patch("chess_online.fetch_text", side_effect=[
+                  json.dumps({"game": {"pgnHeaders": {"Date": "2024.01.01", "White": "Alice"}}}), ""]),
               self.assertRaisesRegex(ValueError, "Game not found")):
-            load_url("https://www.chess.com/game/live/1", chesscom_user="Alice", chesscom_month="2024-01")
+            load_url("https://www.chess.com/game/live/1")
 
     def test_rate_limit_is_reported_without_automatic_retry(self):
         error = HTTPError("https://lichess.org", 429, "Too many requests", {}, None)

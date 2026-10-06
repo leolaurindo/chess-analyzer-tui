@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from itertools import product
@@ -124,15 +125,29 @@ class CliTests(unittest.TestCase):
                 self.assertTrue(getattr(run.call_args.args[0], flag[2:]))
                 self.assertEqual(path.read_bytes(), previous)
 
-    def test_archive_context_flags_reject_partial_pairs_and_startup_menus(self):
-        for flags in (["--chesscom-user", "Alice"],
-                      ["--chesscom-month", "2024-01"],
-                      ["--browse", "--chesscom-user", "Alice", "--chesscom-month", "2024-01"]):
-            with (self.subTest(flags=flags), patch("sys.argv", ["chess-analyzer", *flags]),
-                  contextlib.redirect_stderr(io.StringIO()),
-                  self.assertRaises(SystemExit) as error):
+    def test_chesscom_url_needs_no_extra_flags_and_browse_needs_no_link(self):
+        url = "https://www.chess.com/game/live/4912555148"
+        callback = json.dumps({"game": {"pgnHeaders": {
+            "Date": "2020.05.27", "White": "LPSupi", "Black": "MenuGarden"}}})
+        pgn = ('[White "LPSupi"]\n[Black "MenuGarden"]\n'
+               '[Link "https://www.chess.com/game/live/4912555148"]\n\n1. e4 d5 *')
+        with (patch("sys.argv", ["chess-analyzer", url, "--engine", "stockfish"]),
+              patch("chess_online._validate_url"),
+              patch("chess_online.fetch_text", side_effect=[callback, pgn]),
+              patch("chess_cli.run_app", new_callable=AsyncMock) as run):
+            main()
+        self.assertEqual(run.call_args.args[4:], ("LPSupi", "MenuGarden"))
+        self.assertEqual([move.uci() for move in run.call_args.args[3].mainline_moves()],
+                         ["e2e4", "d7d5"])
+        with tempfile.TemporaryDirectory() as directory:
+            with (patch("sys.argv", ["chess-analyzer", "--browse", "--engine", "stockfish"]),
+                  patch("chess_cli.session_path", return_value=Path(directory) / "absent.json"),
+                  patch("chess_online.fetch_text") as fetch,
+                  patch("chess_cli.run_app", new_callable=AsyncMock) as run):
                 main()
-            self.assertEqual(error.exception.code, 2)
+            self.assertTrue(run.call_args.args[0].browse)
+            self.assertIsNone(run.call_args.args[3])
+            fetch.assert_not_called()
 
     def test_continue_reports_missing_or_corrupt_session(self):
         with tempfile.TemporaryDirectory() as directory:

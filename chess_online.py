@@ -1,6 +1,7 @@
-"""Bounded HTTPS transport and documented public chess-provider APIs."""
+"""Bounded HTTPS transport and chess-provider loading."""
 from __future__ import annotations
 
+import io
 import ipaddress
 import json
 import re
@@ -11,6 +12,8 @@ from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+import chess.pgn
 
 MAX_DOWNLOAD_BYTES = 4 * 1024 * 1024
 URL_TIMEOUT = 10
@@ -200,8 +203,35 @@ def lichess_pgn(game_id: str) -> str:
     return fetch_text(f"https://lichess.org/game/export/{game_id}")
 
 
-def load_url(url: str, *, chesscom_user: str | None = None,
-             chesscom_month: str | None = None) -> str:
+def _load_chesscom_game(game_id: str, kind: str) -> str:
+    # URL-only lookup needs this undocumented callback; the browser never uses it.
+    try:
+        callback = json.loads(fetch_text(f"https://www.chess.com/callback/{kind}/game/{game_id}"))
+        headers = callback["game"]["pgnHeaders"]
+        date = headers["Date"]
+        usernames = [headers.get(color) for color in ("White", "Black")]
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise ValueError(f"Chess.com could not resolve this game URL: {exc}. Try --browse by username.") from exc
+    month = re.fullmatch(r"(\d{4})\.(0[1-9]|1[0-2])\.\d{2}", date) if isinstance(date, str) else None
+    usernames = [name for name in usernames if isinstance(name, str) and name]
+    if not month or not usernames:
+        raise ValueError("Chess.com did not provide the game's archive details. Try --browse by username.")
+    for username in dict.fromkeys(usernames):
+        username = validate_username(username)
+        archive_url = (f"https://api.chess.com/pub/player/{quote(username)}/games/"
+                       f"{month[1]}/{month[2]}/pgn")
+        stream = io.StringIO(fetch_text(archive_url, max_bytes=16 * 1024 * 1024))
+        while game := chess.pgn.read_game(stream):
+            link = game.headers.get("Link", "")
+            if (chesscom_game_id(link) == game_id
+                    and ("daily" in urlsplit(link).path.split("/")) == (kind == "daily")):
+                if game.errors:
+                    raise ValueError(f"Could not parse the archived Chess.com game: {game.errors[0]}")
+                return game.accept(chess.pgn.StringExporter(headers=True, variations=True, comments=True))
+    raise ValueError("Game not found in either player's public archive. Try --browse by username.")
+
+
+def load_url(url: str) -> str:
     _validate_url(url)
     parsed = urlsplit(url)
     host = (parsed.hostname or "").lower()
@@ -209,13 +239,8 @@ def load_url(url: str, *, chesscom_user: str | None = None,
     if host in {"chess.com", "www.chess.com"}:
         game_id = chesscom_game_id(url)
         if game_id:
-            if not chesscom_user or not chesscom_month:
-                raise ValueError("Chess.com game URLs require --chesscom-user NAME and "
-                                 "--chesscom-month YYYY-MM. Alternatively, use --browse.")
-            for game in chesscom_games(chesscom_user, chesscom_month):
-                if game.id == game_id:
-                    return game.pgn
-            raise ValueError("Game not found in that user's archive month. Check the username and month.")
+            kind = "daily" if "daily" in parsed.path.split("/") else "live"
+            return _load_chesscom_game(game_id, kind)
     if host in {"lichess.org", "www.lichess.org"}:
         match = re.fullmatch(r"study/([A-Za-z0-9]{8})(?:/([A-Za-z0-9]{8}))?", path)
         if match:
