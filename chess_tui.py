@@ -135,6 +135,7 @@ class ChessBoard(Widget):
 
 
 class ChessAnalysisApp(App):
+    ENABLE_COMMAND_PALETTE = False
     TITLE = "Chess Analysis"
     CSS = """
     Widget { link-style: none; link-style-hover: none; }
