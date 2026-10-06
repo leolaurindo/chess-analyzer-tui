@@ -18,7 +18,7 @@ def screen_text(app):
 
 async def wait_for_analysis(app, pilot):
     async def ready():
-        while not app.current.analyzed:
+        while not app.analysis.current.analyzed:
             await asyncio.sleep(0.01)
         await pilot.pause()
 
@@ -97,10 +97,10 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             app.think_time = 0.05
             await asyncio.wait_for(pilot.press("left"), timeout=2)
             await wait_for_analysis(app, pilot)
-            self.assertTrue(app.current.candidates)
+            self.assertTrue(app.analysis.current.candidates)
             await asyncio.wait_for(pilot.press("right"), timeout=2)
             await wait_for_analysis(app, pilot)
-            self.assertTrue(app.current.candidates)
+            self.assertTrue(app.analysis.current.candidates)
 
     async def test_evaluation_bar_uses_terminal_game_result(self):
         white_mate = chess.Board("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1")
@@ -136,7 +136,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one("#opening").render().plain,
                              "B90 · Sicilian Defense: Najdorf Variation")
             app.action_game_position(1)
-            choices = app.move_choices(app.current)
+            choices = app.move_choices(app.analysis.current)
             app.action_follow_choice(choices.index(chess.Move.from_uci("e7e6")))
             self.assertEqual(app.query_one("#opening").render().plain, "C00 · French Defense")
             await pilot.press("escape", "enter")
@@ -162,36 +162,36 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · Carlsen")
             await pilot.press("f")
             await pilot.press("right", "enter")
-            self.assertEqual(app.current.board.fen(), final.fen())  # Stop at the PGN's end.
+            self.assertEqual(app.analysis.current.board.fen(), final.fen())  # Stop at the PGN's end.
             app.think_time = 30
             await pilot.press("left")
-            anchor = app.current.board.fen()
+            anchor = app.analysis.current.board.fen()
             self.assertIn("Original", str(app.query_one("#candidates").render()))
             await asyncio.wait_for(pilot.press("enter"), timeout=2)
-            self.assertEqual(app.current.board.fen(), final.fen())
+            self.assertEqual(app.analysis.current.board.fen(), final.fen())
             app.think_time = 0.05
             await pilot.press("left")
             await wait_for_analysis(app, pilot)
             await pilot.press("down", "right")
-            branch = app.current.board.fen()
-            self.assertFalse(app.current.is_mainline)
+            branch = app.analysis.current.board.fen()
+            self.assertFalse(app.analysis.current.is_mainline)
             await wait_for_analysis(app, pilot)
             self.assertIn("1...", str(app.query_one("#position-info").render()))
             await pilot.press("right", "escape")
-            self.assertEqual(app.current.board.fen(), anchor)
+            self.assertEqual(app.analysis.current.board.fen(), anchor)
             await pilot.press("down", "right")
-            self.assertEqual(app.current.board.fen(), branch)
+            self.assertEqual(app.analysis.current.board.fen(), branch)
             await pilot.click("#return-game")
-            self.assertEqual(app.current.board.fen(), anchor)
+            self.assertEqual(app.analysis.current.board.fen(), anchor)
             await pilot.press("enter")
-            self.assertEqual(app.current.board.fen(), final.fen())
+            self.assertEqual(app.analysis.current.board.fen(), final.fen())
             await pilot.press("left")
             await pilot.pause()
             await pilot.click("#candidates", offset=(4, 2))
-            self.assertFalse(app.current.is_mainline)
+            self.assertFalse(app.analysis.current.is_mainline)
             await pilot.pause()
             await pilot.click("#history", offset=(2, 3))
-            self.assertEqual(app.current.board.fen(), chess.STARTING_FEN)
+            self.assertEqual(app.analysis.current.board.fen(), chess.STARTING_FEN)
 
 
 if __name__ == "__main__":

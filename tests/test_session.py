@@ -15,11 +15,11 @@ from chess_tui import ChessAnalysisApp
 class SessionTests(unittest.TestCase):
     def test_fen_history_round_trip_and_failed_write_preserves_previous_session(self):
         app = ChessAnalysisApp(chess.Board("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"), None, 1, 3)
-        app.current = app.root.child(chess.Move.from_uci("e2e4"))
-        app.flipped = True
+        app.analysis.current = app.analysis.root.child(chess.Move.from_uci("e2e4"))
+        app.analysis.flipped = True
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state" / "session.json"
-            save_session(app, path)
+            save_session(app.analysis, path)
             restored = load_session(path)
             self.assertEqual(restored.current.board.fen(), "4k3/8/8/8/4P3/8/8/4K3 b - - 0 1")
             self.assertEqual(restored.current.board.peek().uci(), "e2e4")
@@ -27,10 +27,10 @@ class SessionTests(unittest.TestCase):
             self.assertTrue(restored.flipped)
             self.assertFalse(restored.current.analyzed)
             previous = path.read_bytes()
-            app.flipped = False
+            app.analysis.flipped = False
             with patch("chess_session.os.replace", side_effect=OSError("disk failure")):
                 with self.assertRaises(OSError):
-                    save_session(app, path)
+                    save_session(app.analysis, path)
             self.assertEqual(path.read_bytes(), previous)
             self.assertEqual(list(path.parent.iterdir()), [path])
 
@@ -38,7 +38,7 @@ class SessionTests(unittest.TestCase):
         app = ChessAnalysisApp(chess.Board(), None, 1, 3)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.json"
-            save_session(app, path)
+            save_session(app.analysis, path)
             original = json.loads(path.read_text(encoding="utf-8"))
             for change in ({"version": 99}, {"current": -1}, {"fen": "bad fen"},
                            {"nodes": [[0, "e2e5", False, False, "", ""]]},
@@ -47,7 +47,7 @@ class SessionTests(unittest.TestCase):
                 with self.subTest(change=change):
                     path.write_text(json.dumps(original | change), encoding="utf-8")
                     previous = path.read_bytes()
-                    with self.assertRaisesRegex(SystemExit, "Could not restore saved analysis"):
+                    with self.assertRaisesRegex(ValueError, "Invalid analysis snapshot"):
                         load_session(path)
                     self.assertEqual(path.read_bytes(), previous)
 
@@ -61,36 +61,36 @@ class SessionTests(unittest.TestCase):
 
         async def explore(app):
             async with app.run_test() as pilot:
-                self.assertEqual(app.current.comment, "Main line")
+                self.assertEqual(app.analysis.current.comment, "Main line")
                 app.action_game_position(1)
-                choices = app.move_choices(app.current)
+                choices = app.move_choices(app.analysis.current)
                 self.assertIn(chess.Move.from_uci("c7c5"), choices)
                 app.action_follow_choice(choices.index(chess.Move.from_uci("c7c5")))
-                self.assertEqual(app.return_position.comment, "King pawn")
+                self.assertEqual(app.analysis.return_position.comment, "King pawn")
                 self.assertIn("Sicilian [literal]", app.query_one("#comments").render().plain)
                 self.assertIn("Sicilian introduction", app.query_one("#comments").render().plain)
-                choices = app.move_choices(app.current)
+                choices = app.move_choices(app.analysis.current)
                 app.action_follow_choice(choices.index(chess.Move.from_uci("b1c3")))
-                self.assertEqual(app.current.comment, "Nested variation")
+                self.assertEqual(app.analysis.current.comment, "Nested variation")
                 await pilot.pause()
 
         async def resume(app):
             async with app.run_test() as pilot:
                 self.assertEqual(app.query_one("#comments").render().plain, "Nested variation")
-                self.assertEqual(app.root.comment, "Study introduction")
+                self.assertEqual(app.analysis.root.comment, "Study introduction")
                 await pilot.press("escape")
-                self.assertEqual(app.current.comment, "King pawn")
+                self.assertEqual(app.analysis.current.comment, "King pawn")
                 self.assertIn("Variation", app.query_one("#candidates").render().plain)
                 await pilot.press("enter")
-                self.assertEqual(app.current.board.peek().uci(), "e7e5")
+                self.assertEqual(app.analysis.current.board.peek().uci(), "e7e5")
                 self.assertFalse(app.query_one("#comments").display)
 
         async def fresh(app):
             async with app.run_test():
-                self.assertEqual(app.root.comment, "")
-                self.assertEqual(app.current.comment, "")
+                self.assertEqual(app.analysis.root.comment, "")
+                self.assertEqual(app.analysis.current.comment, "")
                 self.assertFalse(app.query_one("#comments").display)
-                self.assertNotIn(chess.Move.from_uci("c7c5"), app.root.mainline_next.children)
+                self.assertNotIn(chess.Move.from_uci("c7c5"), app.analysis.root.mainline_next.children)
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.json"
@@ -115,7 +115,7 @@ class SessionTests(unittest.TestCase):
 
         async def wait_for_analysis(app, pilot):
             async def ready():
-                while not app.current.analyzed:
+                while not app.analysis.current.analyzed:
                     await asyncio.sleep(0.01)
                 await pilot.pause()
             await asyncio.wait_for(ready(), timeout=4)
@@ -126,37 +126,37 @@ class SessionTests(unittest.TestCase):
                 await pilot.press("left")
                 await wait_for_analysis(app, pilot)
                 await pilot.press("down", "right", "f")
-                self.assertFalse(app.current.is_mainline)
-                self.assertEqual(app.return_position.board.peek().uci(), "e2e4")
-                saved_position = app.current.board.fen()
+                self.assertFalse(app.analysis.current.is_mainline)
+                self.assertEqual(app.analysis.return_position.board.peek().uci(), "e2e4")
+                saved_position = app.analysis.current.board.fen()
 
         async def resume(app):
-            self.assertFalse(app.current.analyzed)
-            self.assertEqual(app.current.candidates, [])
+            self.assertFalse(app.analysis.current.analyzed)
+            self.assertEqual(app.analysis.current.candidates, [])
             async with app.run_test() as pilot:
-                self.assertEqual(app.current.board.fen(), saved_position)
-                self.assertTrue(app.flipped)
+                self.assertEqual(app.analysis.current.board.fen(), saved_position)
+                self.assertTrue(app.analysis.flipped)
                 self.assertIn("Supi", app.query_one("#top-player").render().plain)
                 self.assertIn("Carlsen", app.query_one("#bottom-player").render().plain)
                 await wait_for_analysis(app, pilot)
-                self.assertTrue(app.current.candidates)
+                self.assertTrue(app.analysis.current.candidates)
                 await pilot.press("escape")
-                self.assertEqual(app.current.board.peek().uci(), "e2e4")
+                self.assertEqual(app.analysis.current.board.peek().uci(), "e2e4")
                 self.assertTrue(any(child.board.fen() == saved_position
-                                    for child in app.current.children.values()))
+                                    for child in app.analysis.current.children.values()))
                 await pilot.press("enter")
-                self.assertEqual(app.current.board.peek().uci(), "h7h5")
+                self.assertEqual(app.analysis.current.board.peek().uci(), "h7h5")
                 # Leave the saved session at the explored branch for the next alias.
-                branch = next(child for child in app.current.parent.children.values()
+                branch = next(child for child in app.analysis.current.parent.children.values()
                               if child.board.fen() == saved_position)
-                app.return_position = app.current.parent
+                app.analysis.return_position = app.analysis.current.parent
                 app.show_position(branch)
 
         async def fresh(app):
             async with app.run_test():
-                self.assertEqual(app.current.board.fen(), chess.STARTING_FEN)
-                self.assertFalse(app.has_pgn)
-                self.assertFalse(app.flipped)
+                self.assertEqual(app.analysis.current.board.fen(), chess.STARTING_FEN)
+                self.assertFalse(app.analysis.has_pgn)
+                self.assertFalse(app.analysis.flipped)
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.json"

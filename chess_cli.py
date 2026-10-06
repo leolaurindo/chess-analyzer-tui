@@ -15,7 +15,8 @@ import chess.engine
 import chess.pgn
 
 from chess_input import load_input, player_name
-from chess_session import Session, load_session, save_session, session_path
+from chess_game import Analysis
+from chess_session import load_session, save_session, session_path
 from chess_tui import ChessAnalysisApp
 
 
@@ -59,7 +60,7 @@ def missing_engine_message() -> str:
 
 
 async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Game | None,
-                  white_name: str, black_name: str, *, session: Session | None = None) -> None:
+                  white_name: str, black_name: str, *, session: Analysis | None = None) -> None:
     transport, engine = await chess.engine.popen_uci(engine_path)
     try:
         settings = {}
@@ -82,9 +83,9 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
         engine_name = engine.id.get("name") or Path(engine_path).name
         path = session_path()
 
-        def persist(app: ChessAnalysisApp) -> None:
+        def persist(analysis: Analysis) -> None:
             try:
-                save_session(app, path)
+                save_session(analysis, path)
             except OSError as exc:
                 app.notify(f"Could not save analysis: {exc}", severity="warning")
 
@@ -93,11 +94,7 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
                                white_name=white_name, black_name=black_name,
                                on_session_change=persist)
         if session is not None:
-            app.root = session.root
-            app.current = session.current
-            app.return_position = session.return_position
-            app.has_pgn = session.root.is_mainline
-            app.flipped = session.flipped
+            app.analysis = session
         await app.run_async()
     finally:
         try:
@@ -132,7 +129,14 @@ def main() -> None:
         parser.error("--time must be a positive, finite number")
     if min(args.lines, args.threads, args.hash) < 1:
         parser.error("--lines, --threads and --hash must be positive")
-    session = load_session(session_path()) if args.continue_session else None
+    session = None
+    if args.continue_session:
+        try:
+            session = load_session(session_path())
+        except FileNotFoundError as exc:
+            raise SystemExit("No saved analysis found. Start an analysis first.") from exc
+        except (OSError, ValueError, UnicodeError) as exc:
+            raise SystemExit(f"Could not restore saved analysis: {exc}") from exc
     if session is not None:
         board, game = session.root.board, None
         pgn_white, pgn_black = session.white_name, session.black_name
