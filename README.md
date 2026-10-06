@@ -62,7 +62,8 @@ support.
 ## Continue an analysis
 
 Run `chess-analyzer --continue` (or `-c`) to restore the last game, explored
-branches, current position, player names, and board orientation. Engine analysis
+branches, imported PGN comments and side variations, current position, player names,
+and board orientation. Engine analysis
 is recalculated using the current command-line settings.
 
 The session saves automatically as you navigate or flip the board. Starting a
@@ -106,6 +107,10 @@ and multiple-line settings only when the engine supports them.
 
 PGNs open at the final position and use their `White`/`Black` headers for player labels
 when present. Use `--white` and `--black` to set or override names, including for FENs.
+PGN comments (including Lichess study annotations) appear at their own positions.
+Imported side variations are listed alongside engine moves; follow them with the
+same keys or mouse clicks. Comments stay attached to that game's move tree, not
+other games or engine-generated positions.
 
 - **↑/↓** — choose an original move or engine alternative
 - **→/Enter** — follow the selected move; **←** — step back

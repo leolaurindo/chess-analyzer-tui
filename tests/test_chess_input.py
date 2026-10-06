@@ -40,7 +40,7 @@ class UrlInputTests(unittest.TestCase):
             board, moves, white, black = chess_input.load_input("https://lichess.org/nrmBGiQF")
         fetch.assert_called_once_with("https://lichess.org/game/export/nrmBGiQF")
         self.assertEqual((white, black), ("DrNykterstein", "PseudoBenko"))
-        self.assertEqual([move.uci() for move in moves], ["c2c4", "g8f6", "g2g3", "e7e6"])
+        self.assertEqual([move.uci() for move in moves.mainline_moves()], ["c2c4", "g8f6", "g2g3", "e7e6"])
         self.assertEqual(board.fen(), chess_input.chess.STARTING_FEN)
 
     def test_chesscom_url_looks_up_exact_game_in_player_archive(self):
@@ -55,7 +55,7 @@ class UrlInputTests(unittest.TestCase):
         self.assertEqual(fetch.call_args_list[1].args[0],
                          "https://api.chess.com/pub/player/LPSupi/games/2020/05/pgn")
         self.assertEqual((white, black), ("LPSupi", "MenuGarden"))
-        self.assertEqual([move.uci() for move in moves], ["e2e4", "d7d5", "e4d5", "d8d5"])
+        self.assertEqual([move.uci() for move in moves.mainline_moves()], ["e2e4", "d7d5", "e4d5", "d8d5"])
         self.assertEqual(board.fen(), chess_input.chess.STARTING_FEN)
 
     def test_lichess_study_chapter_url_uses_pgn_export(self):
@@ -66,14 +66,14 @@ class UrlInputTests(unittest.TestCase):
             "https://lichess.org/study/r072zv4F/R33cxdop.pgn"
         )
         self.assertEqual((white, black), ("Mikhail Tal", "Andres Vooremaa"))
-        self.assertEqual(len(moves), 6)
+        self.assertEqual(len(list(moves.mainline_moves())), 6)
 
     def test_plain_text_pgn_url_is_loaded_directly(self):
         url = "https://example.org/games/latest.pgn"
         with patch("chess_input._fetch_text", return_value=LICHESS_PGN) as fetch:
             _, moves, _, _ = chess_input.load_input(url)
         fetch.assert_called_once_with(url)
-        self.assertEqual(len(moves), 4)
+        self.assertEqual(len(list(moves.mainline_moves())), 4)
 
     def test_non_https_url_is_rejected_before_network_access(self):
         with self.assertRaises(SystemExit) as error:

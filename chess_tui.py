@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 import chess
 import chess.engine
+import chess.pgn
 from rich.style import Style
 from rich.text import Text
 from textual import work
@@ -39,6 +40,9 @@ class Node:
     selected: int = 0
     children: dict[chess.Move, Node] = field(default_factory=dict)
     analyzed: bool = False
+    imported: bool = False
+    comment: str = ""
+    starting_comment: str = ""
 
     def child(self, move: chess.Move) -> Node:
         if move not in self.children:
@@ -184,7 +188,7 @@ class ChessAnalysisApp(App):
 
     def __init__(self, board: chess.Board, engine: chess.engine.UciProtocol,
                  think_time: float, multipv: int, ascii_pieces: bool = False,
-                 moves: list[chess.Move] | None = None, engine_name: str = "Engine",
+                 game: chess.pgn.Game | None = None, engine_name: str = "Engine",
                  white_name: str = "White", black_name: str = "Black",
                  on_session_change: Callable[[ChessAnalysisApp], None] | None = None):
         super().__init__()
@@ -196,15 +200,25 @@ class ChessAnalysisApp(App):
         self.engine_name = engine_name
         self.white_name = white_name
         self.black_name = black_name
-        self.has_pgn = moves is not None
+        self.has_pgn = game is not None
         self.root = Node(board.copy(), is_mainline=self.has_pgn)
+        if game is not None:
+            pending = [(self.root, game)]
+            while pending:
+                node, source = pending.pop()
+                node.imported = True
+                node.comment = source.comment
+                node.starting_comment = source.starting_comment
+                for index, variation in enumerate(source.variations):
+                    child = node.child(variation.move)
+                    child.is_mainline = node.is_mainline and index == 0
+                    if child.is_mainline:
+                        node.mainline_next = child
+                    pending.append((child, variation))
         self.current = self.root
+        while self.current.mainline_next:
+            self.current = self.current.mainline_next
         self.return_position: Node | None = None
-        for move in moves or []:
-            child = self.current.child(move)
-            child.is_mainline = True
-            self.current.mainline_next = child
-            self.current = child
         self.flipped = False
         self.analysis_requested = asyncio.Event()
 
@@ -220,7 +234,8 @@ class ChessAnalysisApp(App):
                 yield Static(id="bottom-player", classes="player-name")
                 yield Static(id="fen")
             with VerticalScroll(id="analysis-side"):
-                for name in ("engine-title", "return-game", "candidates", "pv", "history", "status"):
+                for name in ("engine-title", "return-game", "candidates", "comments",
+                             "pv", "history", "status"):
                     yield Static(id=name)
         yield Footer()
 
@@ -261,7 +276,9 @@ class ChessAnalysisApp(App):
         original = node.mainline_next.move_from_parent if node.mainline_next else None
         # A non-playable end row prevents jumping from the PGN into an engine line.
         moves = [original] if node.is_mainline else []
-        return moves + [c.move for c in node.candidates if c.move != original]
+        moves += [move for move, child in node.children.items()
+                  if child.imported and move != original]
+        return moves + [c.move for c in node.candidates if c.move not in moves]
 
     def selected_move(self) -> chess.Move | None:
         moves = self.move_choices(self.current)
@@ -298,7 +315,9 @@ class ChessAnalysisApp(App):
             original = node.is_mainline and index == 0
             candidate = candidates.get(move)
             san = board.san(move) if move else "End of original game"
-            label = "Original" if original else "Engine"
+            child = node.children.get(move)
+            imported = child is not None and child.imported
+            label = "Original" if original else "Variation" if imported else "Engine"
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
                 row += f"  {candidate.score}"
@@ -313,6 +332,17 @@ class ChessAnalysisApp(App):
             lines.append("No engine lines. Press r to retry." if node.analyzed
                          else "Engine is thinking…", style="dim")
         self.query_one("#candidates", Static).update(lines)
+        comments = Text()
+        if node.starting_comment:
+            comments.append(node.starting_comment + "\n\n")
+        if node.comment:
+            comments.append(node.comment)
+        selected_child = node.children.get(selected_move)
+        if selected_child and selected_child.starting_comment:
+            comments.append("\n\nVariation: " + selected_child.starting_comment)
+        comment_panel = self.query_one("#comments", Static)
+        comment_panel.display = bool(comments.plain)
+        comment_panel.update(comments)
         candidate = candidates.get(selected_move)
         pv = Text()
         if selected_move is None and not board.is_game_over():

@@ -86,7 +86,11 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
     async def test_rapid_navigation_during_analysis_keeps_engine_usable(self):
         moves = [chess.Move.from_uci(move) for move in
                  ("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6")]
-        app = ChessAnalysisApp(chess.Board(), self.engine, 30, 5, moves=moves)
+        board = chess.Board()
+        for move in moves:
+            board.push(move)
+        app = ChessAnalysisApp(chess.Board(), self.engine, 30, 5,
+                               game=chess.pgn.Game.from_board(board))
         async with app.run_test(size=(80, 24)) as pilot:
             for _ in range(12):
                 await asyncio.wait_for(pilot.press("left", "right"), timeout=2)
@@ -128,9 +132,9 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *\n'
         )
         final = board.copy()
-        for move in moves:
+        for move in moves.mainline_moves():
             final.push(move)
-        app = ChessAnalysisApp(board, self.engine, 0.05, 3, moves=moves,
+        app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=moves,
                                white_name=white_name, black_name=black_name)
         async with app.run_test(size=(120, 42)) as pilot:
             await wait_for_analysis(app, pilot)

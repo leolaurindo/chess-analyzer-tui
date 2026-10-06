@@ -25,7 +25,7 @@ def player_name(value: str | None, fallback: str) -> str:
     return fallback if name in {"", "?"} else name
 
 
-def parse_input(text: str) -> tuple[chess.Board, list[chess.Move] | None, str, str]:
+def parse_input(text: str) -> tuple[chess.Board, chess.pgn.Game | None, str, str]:
     text = text.strip()
     try:
         return chess.Board(text), None, "White", "Black"
@@ -36,10 +36,9 @@ def parse_input(text: str) -> tuple[chess.Board, list[chess.Move] | None, str, s
         raise SystemExit("Input does not contain a FEN position or PGN game.")
     if game.errors:
         raise SystemExit(f"Could not parse PGN: {game.errors[0]}")
-    moves = list(game.mainline_moves())
-    if not moves:
+    if not game.variations:
         raise SystemExit("Input does not contain a valid FEN or PGN game with moves.")
-    return (game.board(), moves,
+    return (game.board(), game,
             player_name(game.headers.get("White"), "White"),
             player_name(game.headers.get("Black"), "Black"))
 
@@ -140,7 +139,7 @@ def load_url(url: str) -> str:
 
 
 def load_input(text: str | None = None, *, file: str | None = None,
-               clipboard: bool = False) -> tuple[chess.Board, list[chess.Move] | None, str, str]:
+               clipboard: bool = False) -> tuple[chess.Board, chess.pgn.Game | None, str, str]:
     text = text if text is not None else chess.STARTING_FEN
     if file is not None:
         try:

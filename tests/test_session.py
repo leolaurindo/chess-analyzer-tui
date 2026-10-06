@@ -41,13 +41,70 @@ class SessionTests(unittest.TestCase):
             save_session(app, path)
             original = json.loads(path.read_text(encoding="utf-8"))
             for change in ({"version": 99}, {"current": -1}, {"fen": "bad fen"},
-                           {"nodes": [[0, "e2e5", False]]}, {"nodes": [[4, "e2e4", False]]}):
+                           {"nodes": [[0, "e2e5", False, False, "", ""]]},
+                           {"nodes": [[4, "e2e4", False, False, "", ""]]},
+                           {"nodes": [[0, "e2e4", False, True, 42, ""]]}):
                 with self.subTest(change=change):
                     path.write_text(json.dumps(original | change), encoding="utf-8")
                     previous = path.read_bytes()
                     with self.assertRaisesRegex(SystemExit, "Could not restore saved analysis"):
                         load_session(path)
                     self.assertEqual(path.read_bytes(), previous)
+
+    def test_study_comments_variations_continue_and_new_game_isolation(self):
+        engine = find_stockfish()
+        if engine is None:
+            self.skipTest("Stockfish is required for session integration tests")
+        pgn = ('{Study introduction} 1. e4 {King pawn} e5 '
+               '({Sicilian introduction} 1... c5 {Sicilian [literal]} '
+               '2. Nf3 (2. Nc3 {Nested variation}) d6) 2. Nf3 {Main line} *')
+
+        async def explore(app):
+            async with app.run_test() as pilot:
+                self.assertEqual(app.current.comment, "Main line")
+                app.action_game_position(1)
+                choices = app.move_choices(app.current)
+                self.assertIn(chess.Move.from_uci("c7c5"), choices)
+                app.action_follow_choice(choices.index(chess.Move.from_uci("c7c5")))
+                self.assertEqual(app.return_position.comment, "King pawn")
+                self.assertIn("Sicilian [literal]", app.query_one("#comments").render().plain)
+                self.assertIn("Sicilian introduction", app.query_one("#comments").render().plain)
+                choices = app.move_choices(app.current)
+                app.action_follow_choice(choices.index(chess.Move.from_uci("b1c3")))
+                self.assertEqual(app.current.comment, "Nested variation")
+                await pilot.pause()
+
+        async def resume(app):
+            async with app.run_test() as pilot:
+                self.assertEqual(app.query_one("#comments").render().plain, "Nested variation")
+                self.assertEqual(app.root.comment, "Study introduction")
+                await pilot.press("escape")
+                self.assertEqual(app.current.comment, "King pawn")
+                self.assertIn("Variation", app.query_one("#candidates").render().plain)
+                await pilot.press("enter")
+                self.assertEqual(app.current.board.peek().uci(), "e7e5")
+                self.assertFalse(app.query_one("#comments").display)
+
+        async def fresh(app):
+            async with app.run_test():
+                self.assertEqual(app.root.comment, "")
+                self.assertEqual(app.current.comment, "")
+                self.assertFalse(app.query_one("#comments").display)
+                self.assertNotIn(chess.Move.from_uci("c7c5"), app.root.mainline_next.children)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            for source, run in ((["https://lichess.org/study/r072zv4F/R33cxdop"], explore),
+                                (["--continue"], resume), (["1. e4 e5 *"], fresh)):
+                with (
+                    self.subTest(source=source),
+                    patch("sys.argv", ["chess-analyzer", *source, "--engine", engine,
+                                       "--time", "0.05", "--threads", "1", "--hash", "16"]),
+                    patch("chess_input._fetch_text", return_value=pgn),
+                    patch("chess_cli.session_path", return_value=path),
+                    patch.object(ChessAnalysisApp, "run_async", run),
+                ):
+                    main()
 
     def test_cli_restores_branches_names_orientation_and_reanalyzes(self):
         engine = find_stockfish()

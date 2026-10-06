@@ -51,7 +51,7 @@ class CliTests(unittest.TestCase):
                 ):
                     main()
                     _, board, _, moves, white, black = run.call_args.args
-                    actual_moves = None if moves is None else [move.uci() for move in moves]
+                    actual_moves = None if moves is None else [move.uci() for move in moves.mainline_moves()]
                     self.assertEqual(board.fen(), expected_fen)
                     self.assertEqual(actual_moves, expected_moves)
                     self.assertEqual((white, black), names)
