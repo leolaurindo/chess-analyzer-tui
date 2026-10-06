@@ -15,6 +15,15 @@ def screen_text(app):
     return "".join("".join(e.itertext()) for e in svg.iter("{http://www.w3.org/2000/svg}text"))
 
 
+async def wait_for_analysis(app, pilot):
+    async def ready():
+        while not app.current.analyzed:
+            await asyncio.sleep(0.01)
+        await pilot.pause()
+
+    await asyncio.wait_for(ready(), timeout=4)
+
+
 class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         path = find_stockfish()
@@ -32,7 +41,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
     async def test_board_fits_and_large_pawns_stay_straight(self):
         app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3)
         async with app.run_test(size=(80, 24)) as pilot:
-            await app.workers.wait_for_complete()
+            await wait_for_analysis(app, pilot)
             for width, height in [(80, 24), (42, 28), (160, 50), (144, 50)]:
                 with self.subTest(size=(width, height)):
                     await pilot.resize_terminal(width, height)
@@ -62,7 +71,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
     async def test_ascii_and_flip_work_even_with_room_for_art(self):
         app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3, ascii_pieces=True)
         async with app.run_test(size=(160, 50)) as pilot:
-            await app.workers.wait_for_complete()
+            await wait_for_analysis(app, pilot)
             await pilot.pause()
             visible = "".join(screen_text(app).split())
             self.assertIn("8rnbqkbnr", visible)
@@ -72,6 +81,21 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             visible = "".join(screen_text(app).split())
             self.assertIn("1RNBKQBNR", visible)
             self.assertIn("hgfedcba", visible)
+
+    async def test_rapid_navigation_during_analysis_keeps_engine_usable(self):
+        moves = [chess.Move.from_uci(move) for move in
+                 ("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6")]
+        app = ChessAnalysisApp(chess.Board(), self.engine, 30, 5, moves=moves)
+        async with app.run_test(size=(80, 24)) as pilot:
+            for _ in range(12):
+                await asyncio.wait_for(pilot.press("left", "right"), timeout=2)
+            app.think_time = 0.05
+            await asyncio.wait_for(pilot.press("left"), timeout=2)
+            await wait_for_analysis(app, pilot)
+            self.assertTrue(app.current.candidates)
+            await asyncio.wait_for(pilot.press("right"), timeout=2)
+            await wait_for_analysis(app, pilot)
+            self.assertTrue(app.current.candidates)
 
     async def test_pgn_navigation_and_exploration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -84,7 +108,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
         app = ChessAnalysisApp(board, self.engine, 0.05, 3, moves=moves,
                                white_name=white_name, black_name=black_name)
         async with app.run_test(size=(120, 42)) as pilot:
-            await app.workers.wait_for_complete()
+            await wait_for_analysis(app, pilot)
             self.assertEqual(app.query_one("#top-player").render().plain, "Black · Carlsen")
             self.assertEqual(app.query_one("#bottom-player").render().plain, "White · Supi")
             await pilot.press("f")
@@ -101,11 +125,11 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.current.board.fen(), final.fen())
             app.think_time = 0.05
             await pilot.press("left")
-            await app.workers.wait_for_complete()
+            await wait_for_analysis(app, pilot)
             await pilot.press("down", "right")
             branch = app.current.board.fen()
             self.assertFalse(app.current.is_mainline)
-            await app.workers.wait_for_complete()
+            await wait_for_analysis(app, pilot)
             self.assertIn("1...", str(app.query_one("#position-info").render()))
             await pilot.press("right", "escape")
             self.assertEqual(app.current.board.fen(), anchor)

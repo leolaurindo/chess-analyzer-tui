@@ -243,6 +243,7 @@ class ChessAnalysisApp(App):
             self.current.mainline_next = child
             self.current = child
         self.flipped = False
+        self.analysis_requested = asyncio.Event()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -262,7 +263,8 @@ class ChessAnalysisApp(App):
 
     def on_mount(self) -> None:
         self.refresh_ui()
-        self.analyze_node(self.current)
+        self.analyze_requested_position()
+        self.analysis_loop()
 
     def on_resize(self, event: Resize) -> None:
         self.screen.set_class(event.size.width < 64, "narrow")
@@ -386,32 +388,55 @@ class ChessAnalysisApp(App):
     def set_status(self, message: str, style: str = "dim") -> None:
         self.query_one("#status", Static).update(Text(message, style=style))
 
-    @work(exclusive=True, group="engine")
-    async def analyze_node(self, node: Node) -> None:
-        if node.analyzed or node.board.is_game_over():
-            return
-        self.set_status("Engine is thinking…", "yellow")
-        try:
-            result = await self.engine.analyse(
-                node.board.copy(), chess.engine.Limit(time=self.think_time), multipv=self.multipv,
-            )
-        except chess.engine.EngineError as exc:
+    def analyze_requested_position(self) -> None:
+        self.analysis_requested.set()
+
+    @work(group="engine")
+    async def analysis_loop(self) -> None:
+        while True:
+            await self.analysis_requested.wait()
+            self.analysis_requested.clear()
+            node = self.current
+            if node.analyzed or node.board.is_game_over():
+                continue
+            self.set_status("Engine is thinking…", "yellow")
+            try:
+                analysis = await self.engine.analysis(
+                    node.board.copy(), chess.engine.Limit(time=self.think_time),
+                    multipv=self.multipv,
+                )
+                with analysis:
+                    finished = asyncio.create_task(analysis.wait())
+                    changed = asyncio.create_task(self.analysis_requested.wait())
+                    try:
+                        done, _ = await asyncio.wait(
+                            (finished, changed), return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if changed in done:
+                            analysis.stop()
+                        await finished
+                    finally:
+                        changed.cancel()
+                        await asyncio.gather(changed, return_exceptions=True)
+                if changed in done:
+                    continue
+            except chess.engine.EngineError as exc:
+                if node is self.current:
+                    self.set_status(f"Engine error: {exc} · r to retry", "bold red")
+                continue
+            previous = self.move_choices(node)
+            selected = previous[node.selected] if node.selected < len(previous) else None
+            node.candidates = [
+                Candidate(info["pv"][0], format_score(info["score"]),
+                          node.board.variation_san(info["pv"]))
+                for info in analysis.multipv if info.get("pv")
+            ]
+            node.analyzed = True
+            choices = self.move_choices(node)
+            node.selected = choices.index(selected) if selected in choices else 0
             if node is self.current:
-                self.set_status(f"Engine error: {exc} · r to retry", "bold red")
-            return
-        previous = self.move_choices(node)
-        selected = previous[node.selected] if node.selected < len(previous) else None
-        node.candidates = [
-            Candidate(info["pv"][0], format_score(info["score"]),
-                      node.board.variation_san(info["pv"]))
-            for info in result if info.get("pv")
-        ]
-        node.analyzed = True
-        choices = self.move_choices(node)
-        node.selected = choices.index(selected) if selected in choices else 0
-        if node is self.current:
-            self.set_status("Analysis ready.")
-            self.refresh_ui()
+                self.set_status("Analysis ready.")
+                self.refresh_ui()
 
     def action_select_move(self, direction: int) -> None:
         moves = self.move_choices(self.current)
@@ -445,13 +470,12 @@ class ChessAnalysisApp(App):
         self.show_position(node)
 
     def show_position(self, node: Node) -> None:
-        self.workers.cancel_group(self, "engine")
         self.current = node
         self.refresh_bindings()
         self.set_status("Analysis ready." if node.analyzed else "")
         self.refresh_ui()
         self.query_one("#candidates").scroll_visible(animate=False)
-        self.analyze_node(node)
+        self.analyze_requested_position()
 
     def action_return_to_game(self) -> None:
         if self.return_position:
@@ -473,7 +497,7 @@ class ChessAnalysisApp(App):
 
     def action_reanalyze(self) -> None:
         self.current.analyzed = False
-        self.analyze_node(self.current)
+        self.analyze_requested_position()
 
 
 async def run_app(args, board: chess.Board, engine_path: str, moves: list[chess.Move],
