@@ -14,15 +14,15 @@ import chess
 import chess.engine
 import chess.pgn
 
-from chess_input import load_input, player_name
-from chess_game import Analysis
-from chess_online import validate_username
-from chess_session import load_session, save_session, session_path
-from chess_tui import ChessAnalysisApp
+from .input import load_input, player_name
+from .game import Analysis
+from .online import validate_username
+from .session import load_session, save_session, session_path
+from .tui import ChessAnalysisApp
 
 
 def find_stockfish() -> str | None:
-    local = Path(__file__).with_name("stockfish.exe" if os.name == "nt" else "stockfish")
+    local = Path(__file__).resolve().parent.parent / ("stockfish.exe" if os.name == "nt" else "stockfish")
     paths = [shutil.which("stockfish"), str(local), "/usr/games/stockfish",
              "/usr/bin/stockfish", "/usr/local/bin/stockfish"]
     return next((p for p in paths if p and os.path.isfile(p) and os.access(p, os.X_OK)), None)

@@ -9,10 +9,10 @@ from textual.containers import Horizontal, Vertical
 from textual.worker import get_current_worker
 from textual.widgets import Button, Label, OptionList, Static
 
-from chess_dialogs import AnalysisDialog
-from chess_game import Analysis
-from chess_input import parse_input
-from chess_online import OnlineGame, chesscom_games, chesscom_months, lichess_games, lichess_pgn, validate_username
+from .dialogs import AnalysisDialog
+from .game import Analysis
+from .input import parse_input
+from .online import OnlineGame, chesscom_games, chesscom_months, lichess_games, lichess_pgn, validate_username
 
 
 class GameBrowser(AnalysisDialog):

@@ -9,7 +9,7 @@ from pathlib import Path
 import chess
 from platformdirs import user_state_path
 
-from chess_game import Analysis, Node
+from .game import Analysis, Node
 
 
 def session_path() -> Path:

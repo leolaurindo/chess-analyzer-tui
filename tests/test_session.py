@@ -7,10 +7,10 @@ from unittest.mock import patch
 
 import chess
 
-from chess_cli import find_stockfish, main
-from chess_game import Analysis
-from chess_session import load_session, save_session
-from chess_tui import ChessAnalysisApp
+from chess_analyzer.cli import find_stockfish, main
+from chess_analyzer.game import Analysis
+from chess_analyzer.session import load_session, save_session
+from chess_analyzer.tui import ChessAnalysisApp
 
 
 class SessionTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class SessionTests(unittest.TestCase):
             self.assertFalse(restored.current.analyzed)
             previous = path.read_bytes()
             analysis.flipped = False
-            with patch("chess_session.os.replace", side_effect=OSError("disk failure")):
+            with patch("chess_analyzer.session.os.replace", side_effect=OSError("disk failure")):
                 with self.assertRaises(OSError):
                     save_session(analysis, path)
             self.assertEqual(path.read_bytes(), previous)
@@ -102,9 +102,9 @@ class SessionTests(unittest.TestCase):
                     self.subTest(source=source),
                     patch("sys.argv", ["chess-analyzer", *source, "--engine", engine,
                                        "--time", "0.05", "--threads", "1", "--hash", "16"]),
-                    patch("chess_online._validate_url"),
-                    patch("chess_online.fetch_text", return_value=pgn),
-                    patch("chess_cli.session_path", return_value=path),
+                    patch("chess_analyzer.online._validate_url"),
+                    patch("chess_analyzer.online.fetch_text", return_value=pgn),
+                    patch("chess_analyzer.cli.session_path", return_value=path),
                     patch.object(ChessAnalysisApp, "run_async", run),
                 ):
                     main()
@@ -169,7 +169,7 @@ class SessionTests(unittest.TestCase):
                     self.subTest(source=source),
                     patch("sys.argv", ["chess-analyzer", *source, "--engine", engine,
                                        "--time", "0.05", "--threads", "1", "--hash", "16"]),
-                    patch("chess_cli.session_path", return_value=path),
+                    patch("chess_analyzer.cli.session_path", return_value=path),
                     patch.object(ChessAnalysisApp, "run_async", run),
                 ):
                     main()

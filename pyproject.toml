@@ -29,14 +29,10 @@ Source = "https://github.com/leolaurindo/chess-analyzer-tui"
 Issues = "https://github.com/leolaurindo/chess-analyzer-tui/issues"
 
 [project.scripts]
-chess-analyzer = "chess_cli:main"
+chess-analyzer = "chess_analyzer.cli:main"
 
 [tool.setuptools]
-py-modules = [
-    "chess_browser", "chess_cli", "chess_dialogs", "chess_game", "chess_input",
-    "chess_library", "chess_online", "chess_session", "chess_tui", "piece_art",
-]
-packages = ["chess_openings"]
+packages = ["chess_analyzer", "chess_analyzer.openings"]
 
 [tool.setuptools.package-data]
-chess_openings = ["openings.tsv"]
+"chess_analyzer.openings" = ["openings.tsv"]

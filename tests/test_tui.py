@@ -10,12 +10,12 @@ import chess.engine
 from rich.style import Style
 from textual.widgets import Checkbox, Input, TextArea
 
-from chess_cli import find_stockfish
-from chess_game import Analysis
-from chess_input import parse_input
-from chess_library import list_analyses, load_analysis
-from chess_session import load_session, save_session
-from chess_tui import ChessAnalysisApp
+from chess_analyzer.cli import find_stockfish
+from chess_analyzer.game import Analysis
+from chess_analyzer.input import parse_input
+from chess_analyzer.library import list_analyses, load_analysis
+from chess_analyzer.session import load_session, save_session
+from chess_analyzer.tui import ChessAnalysisApp
 
 
 def screen_text(app):
@@ -148,7 +148,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=game,
                                    white_name=white, black_name=black,
                                    on_session_change=lambda state: save_session(state, session))
-            with patch("chess_tui.library_path", return_value=folder):
+            with patch("chess_analyzer.tui.library_path", return_value=folder):
                 async with app.run_test(size=(40, 24)) as pilot:
                     node = app.analysis.current
                     await pilot.press("c")

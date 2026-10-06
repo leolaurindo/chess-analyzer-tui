@@ -8,8 +8,8 @@ from pathlib import Path
 
 from platformdirs import user_data_path
 
-from chess_game import Analysis
-from chess_session import analysis_from_data, analysis_to_data, write_json
+from .game import Analysis
+from .session import analysis_from_data, analysis_to_data, write_json
 
 
 def library_path() -> Path:

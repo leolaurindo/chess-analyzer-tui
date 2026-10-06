@@ -22,7 +22,7 @@ def main() -> None:
                 raise ValueError(f"Invalid opening: {row['name']}")
             # Keep the first entry for positions with multiple names.
             openings.setdefault(game.end().board().epd(), (row["eco"], row["name"]))
-    path = Path(__file__).resolve().parents[1] / "chess_openings" / "openings.tsv"
+    path = Path(__file__).resolve().parents[1] / "chess_analyzer" / "openings" / "openings.tsv"
     with path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
         writer.writerow(("epd", "eco", "name"))
