@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+from threading import Event
 
 import chess
 import chess.pgn
@@ -12,16 +13,22 @@ from .input import player_name
 from .online import chesscom_games, chesscom_months, lichess_games, lichess_pgn
 
 
-def load_latest_game(provider: str, username: str) -> Analysis | None:
+def load_latest_game(provider: str, username: str, *,
+                     cancelled: Event | None = None) -> Analysis | None:
     """Return a new analysis at the game's end, or None for an empty account.
 
     Requests are synchronous and bounded by the provider transport. UI callers
-    should run this off-thread and discard the result if their load is cancelled.
+    should run this off-thread and signal cancellation to stop between requests.
+    Cancellation returns None; callers must discard any result after cancelling.
     """
     account = Account(provider, username)
+    if cancelled is not None and cancelled.is_set():
+        return None
     latest = None
     if account.provider == "chess.com":
         for month in chesscom_months(account.username):
+            if cancelled is not None and cancelled.is_set():
+                return None
             games = chesscom_games(account.username, month)
             if games:
                 latest = games[0]
@@ -29,6 +36,8 @@ def load_latest_game(provider: str, username: str) -> Analysis | None:
     else:
         until = None
         while True:
+            if cancelled is not None and cancelled.is_set():
+                return None
             page = lichess_games(account.username, until=until)
             if page.games:
                 latest = page.games[0]
@@ -38,9 +47,11 @@ def load_latest_game(provider: str, username: str) -> Analysis | None:
             if until is not None and page.until >= until:
                 raise ValueError("Lichess returned a non-advancing page cursor.")
             until = page.until
-    if latest is None:
+    if latest is None or (cancelled is not None and cancelled.is_set()):
         return None
     pgn = latest.pgn if latest.pgn is not None else lichess_pgn(latest.id)
+    if cancelled is not None and cancelled.is_set():
+        return None
     game = chess.pgn.read_game(io.StringIO(pgn))
     if game is None:
         raise ValueError("The latest game does not contain PGN.")

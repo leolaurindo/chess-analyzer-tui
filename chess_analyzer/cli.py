@@ -14,6 +14,7 @@ import chess
 import chess.engine
 import chess.pgn
 
+from .config import load_account
 from .input import load_input, player_name
 from .game import Analysis
 from .online import validate_username
@@ -95,7 +96,11 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
                                white_name=white_name, black_name=black_name,
                                on_session_change=persist,
                                open_library=args.library,
-                               browse_provider=args.browse, browse_user=args.user)
+                               browse_provider=args.browse or (args.account.provider if args.account else None),
+                               browse_user=args.user or (args.account.username if args.account else None),
+                               open_browser=bool(args.browse), open_latest=args.follow,
+                               account_error=args.account_error,
+                               follow_white=args.white, follow_black=args.black)
         if session is not None:
             app.analysis = session
         await app.run_async()
@@ -119,6 +124,8 @@ def main() -> None:
                         help="Analyze FEN or PGN from the clipboard")
     source.add_argument("-c", "--continue", dest="continue_session", action="store_true",
                         help="Restore the last analysis session")
+    source.add_argument("-f", "--follow", action="store_true",
+                        help="Load the default account’s latest available completed standard game")
     source.add_argument("--library", action="store_true", help="Browse saved local analyses")
     source.add_argument("--browse", choices=("chess.com", "lichess"), metavar="PROVIDER",
                         help="Browse public games from chess.com or lichess")
@@ -145,8 +152,19 @@ def main() -> None:
             parser.error(str(exc))
     elif args.user is not None:
         parser.error("--user requires --browse chess.com or lichess")
+    args.account, args.account_error = None, None
+    try:
+        args.account = load_account()
+    except (OSError, ValueError) as exc:
+        if args.follow:
+            raise SystemExit(f"Could not load default account: {exc}. "
+                             "Start chess-analyzer and press u to set up an account.") from exc
+        args.account_error = str(exc)
+    if args.follow and args.account is None:
+        raise SystemExit("No default account configured. Start chess-analyzer and press u "
+                         "to save a public account, then run chess-analyzer --follow.")
     session = None
-    if args.continue_session or ((args.library or args.browse) and session_path().exists()):
+    if args.continue_session or ((args.library or args.browse or args.follow) and session_path().exists()):
         try:
             session = load_session(session_path())
         except FileNotFoundError as exc:
@@ -158,12 +176,12 @@ def main() -> None:
         pgn_white, pgn_black = session.white_name, session.black_name
     else:
         board, game, pgn_white, pgn_black = load_input(args.input, file=args.file, clipboard=args.clip)
-    white_name = player_name(args.white, pgn_white)
-    black_name = player_name(args.black, pgn_black)
+    white_name = pgn_white if args.follow else player_name(args.white, pgn_white)
+    black_name = pgn_black if args.follow else player_name(args.black, pgn_black)
     if session is not None:
         session.white_name, session.black_name = white_name, black_name
     headers = session.headers if session is not None else game.headers if game is not None else None
-    if headers is not None:
+    if headers is not None and not args.follow:
         for color, override, name in (("White", args.white, white_name),
                                       ("Black", args.black, black_name)):
             if override is not None and override.strip() not in {"", "?"}:

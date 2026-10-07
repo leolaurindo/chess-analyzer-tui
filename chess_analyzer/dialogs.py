@@ -1,6 +1,7 @@
 """Local analysis dialogs; persistence stays in library/session."""
 import asyncio
 from pathlib import Path
+from threading import Event
 
 from rich.text import Text
 from textual import on, work
@@ -10,8 +11,9 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Footer, Input, Label, OptionList, Select, Static, TextArea
 
+from .follow import load_latest_game
 from .game import Analysis
-from .input import load_input
+from .input import load_input, player_name
 from .library import SavedAnalysis, list_analyses, load_analysis, save_analysis
 from .online import validate_username
 
@@ -36,9 +38,12 @@ class AnalysisDialog(ModalScreen):
         Binding("ctrl+h", "app.home", "Home", key_display="Ctrl+H", priority=True),
     ]
 
+    def cancel_pending(self) -> None:
+        self.workers.cancel_node(self)
+
     @on(Button.Pressed, "#cancel")
     def action_cancel(self) -> None:
-        self.workers.cancel_node(self)
+        self.cancel_pending()
         self.dismiss(None)
 
 
@@ -144,13 +149,13 @@ class AccountSelectionDialog(AnalysisDialog):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("Browse a public account")
+            yield Label("Save a default public account and browse")
             yield Select([("Chess.com", "chess.com"), ("Lichess", "lichess")],
                          value=self.provider or "chess.com", allow_blank=False, id="provider")
             yield Input(self.username or "", placeholder="Public username", id="username")
             yield Static(id="error")
             with Horizontal():
-                yield Button("Browse", id="browse", variant="primary")
+                yield Button("Save & browse", id="browse", variant="primary")
                 yield Button("Cancel", id="cancel")
         yield Footer()
 
@@ -215,6 +220,76 @@ class ImportDialog(AnalysisDialog):
             self.query_one(TextArea).focus()
         else:
             self.dismiss(("", analysis))
+
+
+class LatestGameDialog(AnalysisDialog):
+    BINDINGS = [Binding("r", "load", "Retry", show=False)]
+
+    def __init__(self, provider: str, username: str, *,
+                 white: str | None = None, black: str | None = None):
+        super().__init__()
+        self.provider, self.username = provider, username
+        self.white, self.black = white, black
+        self.cancelled = Event()
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(Text(f"Latest available · {self.provider} · {self.username}"))
+            yield Static("Loading… · Esc cancels", id="latest-status")
+            with Horizontal():
+                yield Button("Retry", id="load", disabled=True)
+                yield Button("Cancel", id="cancel")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.load_latest()
+
+    def on_unmount(self) -> None:
+        self.cancelled.set()
+
+    def cancel_pending(self) -> None:
+        self.cancelled.set()
+        super().cancel_pending()
+
+    def pause_for_help(self) -> None:
+        self.cancel_pending()
+        if self.query_one("#load", Button).disabled:
+            self.query_one("#load", Button).disabled = False
+            self.query_one("#latest-status", Static).update("Download canceled · r retries")
+
+    @on(Button.Pressed, "#load")
+    def action_load(self) -> None:
+        if not self.query_one("#load", Button).disabled:
+            self.load_latest()
+
+    @work(group="latest", exclusive=True)
+    async def load_latest(self) -> None:
+        cancelled = self.cancelled = Event()
+        retry = self.query_one("#load", Button)
+        retry.disabled = True
+        status = self.query_one("#latest-status", Static)
+        status.update("Loading… · Esc cancels")
+        try:
+            analysis = await asyncio.to_thread(load_latest_game, self.provider, self.username,
+                                               cancelled=cancelled)
+            if cancelled.is_set():
+                return
+            if analysis is None:
+                status.update("No completed standard games available · r retries")
+                retry.disabled = False
+                return
+            for color, override in (("White", self.white), ("Black", self.black)):
+                if override is not None and override.strip() not in {"", "?"}:
+                    name = player_name(override, color)
+                    setattr(analysis, color.lower() + "_name", name)
+                    analysis.headers[color] = name
+        except (OSError, ValueError) as exc:
+            status.update(Text(f"Could not load latest game: {exc} · r retries"))
+            retry.disabled = False
+        else:
+            self.dismiss(("", analysis))
+        finally:
+            cancelled.set()
 
 
 class HelpDialog(AnalysisDialog):
