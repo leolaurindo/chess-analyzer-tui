@@ -250,8 +250,8 @@ what you requested.
   and public username, even when already configured. **Ctrl+L** loads the latest
   available completed game. **l** opens the library;
   **i** imports pasted FEN, PGN, or an HTTPS URL. **Ctrl+S** imports; **Esc**
-  cancels. Downloads run off the
-  UI thread, using the same bounded URL loader as CLI input.
+  cancels. Downloads run off the UI thread, using the same bounded URL loader
+  as CLI input.
 - **?** shows contextual help outside text fields; **F1** works everywhere.
   Help is an overlay: Esc or repeated F1/`?` closes only help and returns to the
   underlying dialog with unsubmitted fields intact. Active import/browser/latest
@@ -261,7 +261,7 @@ what you requested.
   dialogs. Plain `h`, `q`, and `?` remain typeable in inputs and text areas.
 
 Only help, Home, and quit are global. Analysis commands do not leak into dialogs.
-**Ctrl+F** and **Ctrl+P** are reserved for clipboard export.
+**Ctrl+F** copies the current FEN; **Ctrl+P** copies the full analysis PGN.
 
 ## Navigation
 
