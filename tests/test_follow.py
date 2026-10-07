@@ -1,18 +1,12 @@
-import asyncio
 import json
-import tempfile
 import threading
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import chess
 
-from chess_analyzer.config import Account, save_account
 from chess_analyzer.follow import load_latest_game
-from chess_analyzer.game import Analysis
 from chess_analyzer.online import GamePage
-from chess_analyzer.session import save_session
 
 
 PGN = '[White "Alice"]\n[Black "Bob"]\n[Result "1-0"]\n\n1. e4 e5 2. Nf3 1-0'
@@ -131,41 +125,12 @@ class LatestGameTests(unittest.TestCase):
               self.assertRaisesRegex(ValueError, "non-advancing")):
             load_latest_game("lichess", "Alice")
 
-    def test_caller_can_cancel_and_discard_background_load_without_changing_saved_state(self):
-        entered, release = threading.Event(), threading.Event()
-        current = Analysis.from_input(chess.Board())
-
-        def export(url, **kwargs):
-            if "/api/" in url:
-                return json.dumps(lichess_record("latest01", 1000))
-            entered.set()
-            if not release.wait(3):
-                raise TimeoutError("test did not release export")
-            return PGN
-
-        async def cancel_load():
-            nonlocal current
-            task = asyncio.create_task(asyncio.to_thread(load_latest_game, "lichess", "Alice"))
-            try:
-                self.assertTrue(await asyncio.to_thread(entered.wait, 3))
-                task.cancel()
-                with self.assertRaises(asyncio.CancelledError):
-                    current = await task
-            finally:
-                release.set()
-
-        with tempfile.TemporaryDirectory() as directory:
-            config, session = Path(directory) / "config.json", Path(directory) / "session.json"
-            save_account(Account("lichess", "Alice"), config)
-            save_session(current, session)
-            before = (config.read_bytes(), session.read_bytes())
-            with (patch("chess_analyzer.config.user_config_path", return_value=Path(directory)),
-                  patch("chess_analyzer.session.user_state_path", return_value=Path(directory)),
-                  patch("chess_analyzer.online.fetch_text", side_effect=export)):
-                asyncio.run(cancel_load())
-            self.assertEqual(current.current.board.fen(), chess.STARTING_FEN)
-            self.assertFalse(current.has_pgn)
-            self.assertEqual((config.read_bytes(), session.read_bytes()), before)
+    def test_pre_cancelled_load_never_issues_a_request(self):
+        cancelled = threading.Event()
+        cancelled.set()
+        with patch("chess_analyzer.online.fetch_text") as fetch:
+            self.assertIsNone(load_latest_game("lichess", "Alice", cancelled=cancelled))
+            fetch.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ chess-analyzer --file position.fen
 chess-analyzer --clip
 chess-analyzer --continue          # or: chess-analyzer -c
 chess-analyzer --library           # choose a saved analysis
+chess-analyzer --follow            # or -f; first save an account with u in the app
 chess-analyzer --browse chess.com --user leolaurindo
 chess-analyzer --browse lichess --user leolaurindo
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
@@ -58,9 +59,10 @@ Options:
 - `--clip` — load FEN or PGN from the clipboard
 - `--continue` / `-c` — restore the last analysis session
 - `--library` — interactively reopen a named local analysis
+- `--follow` / `-f` — load the default account’s latest available completed standard game
 - `--browse PROVIDER --user NAME` — browse public games; provider is `chess.com` or `lichess`
 - `--ascii` — use ASCII pieces
-- `--time 0.5` — set analysis time
+- `--time 0.5` / `-t 0.5` — set analysis time
 - `--lines 3` — show multiple lines
 - `--threads 2` — set engine threads, if supported
 - `--hash 256` — set engine hash size, if supported
@@ -137,8 +139,11 @@ chess-analyzer --browse lichess --user leolaurindo
 ```
 
 Press **b** from analysis or Home to browse. Without an account selected, choose
-Chess.com or Lichess and enter a public username; Enter or Browse opens its games.
-The selection is retained for this app session only. CLI accounts open directly.
+Chess.com or Lichess and enter a public username; Enter or Save & browse saves
+the default and opens its games.
+The selection is saved as your one default account. **u** changes it, with the
+current values prefilled. CLI accounts open directly but do not change the saved
+default merely by browsing.
 Games load automatically; months/pages are selected with the paging keys.
 No login, token storage, or play-token reuse is needed.
 
@@ -157,12 +162,49 @@ limits are shown without automatic retries; wait at least a minute before retryi
 Canceling discards a pending result; the underlying HTTP request can run until its
 timeout. Starting the browser automatically requests the latest games.
 
-`--browse` and `--library` restore the last session behind their menus when one
+`--browse`, `--library`, and `--follow` restore the last session behind their dialogs when one
 exists, so canceling does not replace your continue snapshot with a new game.
 These startup menus cannot be combined with another input source.
 
 Provider references: [Chess.com Published Data API](https://support.chess.com/en/articles/9650547-published-data-api)
 and [Lichess game export API](https://lichess.org/api#tag/Games/operation/apiGamesUser).
+
+## Latest available game
+
+1. Run `chess-analyzer`, press **u**, choose Chess.com or Lichess, and enter a
+   public username. Enter or **Save & browse** persists that single default.
+2. Run `chess-analyzer -f` / `--follow`, or press **Ctrl+L** from Home/analysis,
+   to load its latest available completed standard-chess game at the final position.
+   **b** browses that account's other games; **u** changes the default.
+
+Plain startup never fetches online games, even with a saved account. Follow is
+one explicit, one-time fetch—not polling or live monitoring. It cannot be
+combined with text, `--file`, `--clip`, `--continue`, `--library`, or `--browse`.
+`-t` remains engine thinking time. `--white` / `--black` also override the
+follow-loaded game's labels and exported PGN headers.
+
+Missing follow configuration reports how to set it up before starting the engine.
+Malformed configuration is reported; ordinary startup still lets you repair it
+with **u**. Only a successful latest-game load replaces the analysis/session.
+Loading, empty-account, and error states remain in a cancellable dialog; **r**
+retries explicitly. **Esc**, Home, or quit cancel. Help cancels the download but
+keeps the dialog retryable underneath. Cancellation discards the result and stops
+further archive/page/export requests after the current bounded HTTP request finishes.
+There is no authentication, token storage, or automatic retry.
+
+Chess.com searches archive months newest first, falling back to older archives
+when no completed standard games are available. Public archives can lag, so the
+result is described as **latest available**. Lichess traverses filtered empty
+pages using its API's newest-created ordering.
+
+The account is stored atomically as provider/username JSON in `config.json`,
+separately from analysis snapshots:
+
+- Linux: `$XDG_CONFIG_HOME/chess-analyzer`, or `~/.config/chess-analyzer`
+- macOS: `~/Library/Application Support/chess-analyzer`
+- Windows: `%LOCALAPPDATA%\chess-analyzer`
+
+A failed account save is shown and leaves the previous account/config unchanged.
 
 ## Stockfish
 
@@ -205,15 +247,16 @@ what you requested.
   a game is preserved, Home edits/navigation do not replace its `--continue`
   snapshot. Opening another game replaces the preserved game.
 - **b** opens the current account’s browser; **u** chooses or changes the provider
-  and public username, even when already configured. **l** opens the library;
+  and public username, even when already configured. **Ctrl+L** loads the latest
+  available completed game. **l** opens the library;
   **i** imports pasted FEN, PGN, or an HTTPS URL. **Ctrl+S** imports; **Esc**
   cancels. Downloads run off the
   UI thread, using the same bounded URL loader as CLI input.
 - **?** shows contextual help outside text fields; **F1** works everywhere.
   Help is an overlay: Esc or repeated F1/`?` closes only help and returns to the
-  underlying dialog with unsubmitted fields intact. Active import/browser
+  underlying dialog with unsubmitted fields intact. Active import/browser/latest
   downloads are canceled without closing their dialog; Ctrl+S (import) or
-  **r** (browser) retries after closing help. Help scrolls on small terminals.
+  **r** (browser/latest) retries after closing help. Help scrolls on small terminals.
 - **q** quits outside text fields; **Ctrl+Q** quits everywhere, canceling pending
   dialogs. Plain `h`, `q`, and `?` remain typeable in inputs and text areas.
 
@@ -269,7 +312,8 @@ is released under [MIT](LICENSE).
 ## Development
 
 Application modules live in `chess_analyzer/`: `cli.py`, `tui.py`, `input.py`,
-`game.py`, `session.py`, `library.py`, `online.py`, `browser.py`, and `dialogs.py`.
+`game.py`, `session.py`, `library.py`, `online.py`, `browser.py`, `follow.py`,
+`config.py`, and `dialogs.py`.
 Piece artwork and the bundled opening dataset are also inside this package.
 Run from the checkout with `uv run chess-analyzer` or
 `uv run python -m chess_analyzer.cli`.

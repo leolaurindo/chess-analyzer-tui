@@ -21,8 +21,9 @@ from textual.widget import Widget
 from textual.widgets import Footer, Header, Input, Static, TextArea
 
 from .browser import GameBrowser
-from .dialogs import (AccountSelectionDialog, CommentEditor, HelpDialog, ImportDialog,
-                      LibraryDialog, SaveAnalysisDialog)
+from .config import Account, save_account
+from .dialogs import (AccountSelectionDialog, AnalysisDialog, CommentEditor, HelpDialog,
+                      ImportDialog, LatestGameDialog, LibraryDialog, SaveAnalysisDialog)
 from .game import Analysis, Candidate, Node, history_to_san
 from .library import SavedAnalysis, library_path
 from .openings import opening_label
@@ -160,6 +161,7 @@ class ChessAnalysisApp(App):
         Binding("l", "open_library", "Library", show=False),
         ("b", "browse_games", "Browse"),
         Binding("u", "select_account", "Account", show=False),
+        Binding("ctrl+l", "latest_game", "Latest game", show=False),
         ("i", "import_analysis", "Import"),
         Binding("h", "home_plain", "Home", show=False, priority=True),
         Binding("g", "preserved_game", "Game", show=False),
@@ -176,10 +178,16 @@ class ChessAnalysisApp(App):
                  white_name: str = "White", black_name: str = "Black",
                  on_session_change: Callable[[Analysis], None] | None = None,
                  open_library: bool = False,
-                 browse_provider: str | None = None, browse_user: str | None = None):
+                 browse_provider: str | None = None, browse_user: str | None = None,
+                 open_browser: bool = False, open_latest: bool = False,
+                 account_error: str | None = None,
+                 follow_white: str | None = None, follow_black: str | None = None):
         super().__init__()
         self.on_session_change = on_session_change
         self.open_library = open_library
+        self.open_browser, self.open_latest = open_browser, open_latest
+        self.account_error = account_error
+        self.follow_white, self.follow_black = follow_white, follow_black
         self.browse_provider = browse_provider
         self.browse_user = browse_user
         self.engine = engine
@@ -219,10 +227,16 @@ class ChessAnalysisApp(App):
         self.refresh_ui()
         self.analyze_requested_position()
         self.analysis_loop()
-        self.save_session()
-        if self.open_library:
+        if not self.open_latest:
+            self.save_session()
+        if self.account_error:
+            self.notify(f"Could not load default account: {self.account_error} · u to set up",
+                        severity="warning")
+        if self.open_latest:
+            self.action_latest_game(white=self.follow_white, black=self.follow_black)
+        elif self.open_library:
             self.action_open_library()
-        elif self.browse_provider:
+        elif self.open_browser:
             self.action_browse_games()
 
     def save_session(self) -> None:
@@ -560,13 +574,28 @@ class ChessAnalysisApp(App):
         else:
             self.action_select_account()
 
+    def action_latest_game(self, *, white: str | None = None, black: str | None = None) -> None:
+        if self.browse_provider and self.browse_user:
+            self.push_screen(LatestGameDialog(self.browse_provider, self.browse_user,
+                                             white=white, black=black), self.analysis_selected)
+        else:
+            self.notify("No default account configured · press u to save a public account",
+                        severity="warning")
+
     def action_select_account(self) -> None:
         self.push_screen(AccountSelectionDialog(self.browse_provider, self.browse_user),
                          self.account_selected)
 
     def account_selected(self, account: tuple[str, str] | None) -> None:
         if account is not None:
-            self.browse_provider, self.browse_user = account
+            try:
+                saved = Account(*account)
+                save_account(saved)
+            except (OSError, ValueError) as exc:
+                self.notify(f"Could not save default account: {exc} · account unchanged",
+                            severity="error")
+                return
+            self.browse_provider, self.browse_user = saved.provider, saved.username
             self.action_browse_games()
 
     def action_import_analysis(self) -> None:
@@ -575,7 +604,10 @@ class ChessAnalysisApp(App):
     async def cancel_dialogs(self) -> None:
         while isinstance(self.screen, ModalScreen):
             screen = self.screen
-            screen.workers.cancel_node(screen)
+            if isinstance(screen, AnalysisDialog):
+                screen.cancel_pending()
+            else:
+                screen.workers.cancel_node(screen)
             await screen.dismiss(None)
 
     async def action_home_plain(self) -> None:
@@ -622,6 +654,11 @@ class ChessAnalysisApp(App):
         if isinstance(screen, GameBrowser):
             title = "Browser help"
             details = "\n\nBrowse\n↑/↓: choose game · Enter: open\n←/→: newer / older · r: reload"
+        elif isinstance(screen, LatestGameDialog):
+            title = "Latest game help"
+            details = ("\n\nLatest available game\nr: retry once · Esc: cancel"
+                       "\nOnly completed standard chess is loaded."
+                       "\nChess.com public archives can lag.")
         elif isinstance(screen, LibraryDialog):
             title = "Library help"
             details = "\n\nLibrary\n↑/↓: choose analysis\nEnter: open selected analysis"
@@ -629,7 +666,7 @@ class ChessAnalysisApp(App):
             title = "Account help"
             details = (
                 "\n\nBrowse\nTab: change field\n↑/↓: choose provider"
-                "\nEnter in username: browse\nPublic username: letters, numbers, _ or -"
+                "\nEnter in username: save default and browse\nPublic username: letters, numbers, _ or -"
             )
         elif isinstance(screen, (CommentEditor, SaveAnalysisDialog, ImportDialog)):
             title = ("Comment help" if isinstance(screen, CommentEditor) else
@@ -644,7 +681,8 @@ class ChessAnalysisApp(App):
                 details += "\nPaste FEN, PGN or HTTPS URL.\nLoading is cancellable."
         else:
             title = "Home help" if self.analysis is self.home_analysis else "Analysis help"
-            navigation += "\nb: online browser · l: library\nu: choose / change account"
+            navigation += ("\nb: online browser · l: library\nu: save / change default account"
+                           "\nCtrl+L: latest available completed game")
             if self.analysis is self.home_analysis and self.preserved_analysis is not None:
                 navigation += "\ng: return to preserved game"
             details = (
@@ -657,7 +695,7 @@ class ChessAnalysisApp(App):
                         "\nCtrl+F: copy current FEN\nCtrl+P: copy full analysis PGN"
                         "\ns: save named analysis")
         # A covered loader must not dismiss the help screen when its result arrives.
-        if isinstance(screen, (ImportDialog, GameBrowser)):
+        if isinstance(screen, (ImportDialog, GameBrowser, LatestGameDialog)):
             screen.pause_for_help()
         self.push_screen(HelpDialog(title, navigation + details +
                                    "\n\nEsc / F1 / ?: close help only.\nDrafts are preserved. Active downloads\nare canceled; retry after closing help."))

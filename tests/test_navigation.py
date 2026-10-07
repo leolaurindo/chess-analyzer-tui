@@ -21,6 +21,11 @@ from chess_analyzer.tui import ChessAnalysisApp
 
 class NavigationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config = patch("chess_analyzer.config.user_config_path", return_value=Path(directory.name))
+        config.start()
+        self.addCleanup(config.stop)
         path = find_stockfish()
         if not path:
             self.skipTest("Stockfish is required for navigation integration tests")

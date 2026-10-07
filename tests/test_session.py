@@ -14,6 +14,14 @@ from chess_analyzer.tui import ChessAnalysisApp
 
 
 class SessionTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.config = Path(directory.name) / "config.json"
+        config = patch("chess_analyzer.config.user_config_path", return_value=self.config.parent)
+        config.start()
+        self.addCleanup(config.stop)
+
     def test_fen_history_round_trip_and_failed_write_preserves_previous_session(self):
         analysis = Analysis.from_input(chess.Board("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"))
         analysis.current = analysis.root.child(chess.Move.from_uci("e2e4"))
