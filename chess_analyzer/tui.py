@@ -8,6 +8,7 @@ from collections.abc import Callable
 import chess
 import chess.engine
 import chess.pgn
+import pyperclip
 from rich.style import Style
 from rich.text import Text
 from textual import work
@@ -150,6 +151,8 @@ class ChessAnalysisApp(App):
         Binding("down", "select_move(1)", "Choose", priority=True),
         Binding("escape", "return_to_game", "Original game", priority=True),
         ("f", "flip_board", "Flip"),
+        ("ctrl+f", "copy_fen", "Copy FEN"),
+        ("ctrl+p", "copy_pgn", "Copy PGN"),
         ("r", "reanalyze", "Re-analyze"),
         ("c", "edit_comment", "Comment"),
         ("s", "save_analysis", "Save"),
@@ -463,6 +466,20 @@ class ChessAnalysisApp(App):
         self.analysis.flipped = not self.analysis.flipped
         self.refresh_board()
         self.save_session()
+
+    def copy_to_clipboard(self, text: str, label: str) -> None:
+        try:
+            pyperclip.copy(text)
+        except (pyperclip.PyperclipException, OSError) as exc:
+            self.notify(f"Could not copy {label}: {exc}", severity="error")
+        else:
+            self.notify(f"Copied {label} to clipboard")
+
+    def action_copy_fen(self) -> None:
+        self.copy_to_clipboard(self.analysis.current.board.fen(), "FEN")
+
+    def action_copy_pgn(self) -> None:
+        self.copy_to_clipboard(self.analysis.to_pgn(), "PGN")
 
     def action_reanalyze(self) -> None:
         self.analysis.current.analyzed = False
