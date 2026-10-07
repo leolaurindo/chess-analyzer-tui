@@ -28,11 +28,6 @@ class SessionTests(unittest.TestCase):
             self.assertFalse(restored.root.is_mainline)
             self.assertTrue(restored.flipped)
             self.assertFalse(restored.current.analyzed)
-            # Existing v2 snapshots lack headers and must still reopen.
-            legacy = json.loads(path.read_text(encoding="utf-8"))
-            del legacy["headers"]
-            path.write_text(json.dumps(legacy), encoding="utf-8")
-            self.assertEqual(load_session(path).headers, {})
             previous = path.read_bytes()
             analysis.flipped = False
             with patch("chess_analyzer.session.os.replace", side_effect=OSError("disk failure")):
@@ -47,15 +42,22 @@ class SessionTests(unittest.TestCase):
             path = Path(directory) / "session.json"
             save_session(analysis, path)
             original = json.loads(path.read_text(encoding="utf-8"))
-            for change in ({"version": 99}, {"current": -1}, {"fen": "bad fen"},
+            self.assertEqual(original["version"], 3)
+            cases = [(original | change, "Invalid analysis snapshot")
+                     for change in ({"version": 99}, {"current": -1}, {"fen": "bad fen"},
                            {"nodes": [[0, "e2e5", False, False, "", ""]]},
                            {"nodes": [[4, "e2e4", False, False, "", ""]]},
                            {"nodes": [[0, "e2e4", False, True, 42, ""]]},
-                           {"headers": []}, {"headers": {"Result": 42}}):
-                with self.subTest(change=change):
-                    path.write_text(json.dumps(original | change), encoding="utf-8")
+                           {"headers": []}, {"headers": {"Result": 42}})]
+            cases.extend([
+                (original | {"version": 2}, "unsupported session version"),
+                ({key: value for key, value in original.items() if key != "headers"}, "headers"),
+            ])
+            for data, error in cases:
+                with self.subTest(data=data):
+                    path.write_text(json.dumps(data), encoding="utf-8")
                     previous = path.read_bytes()
-                    with self.assertRaisesRegex(ValueError, "Invalid analysis snapshot"):
+                    with self.assertRaisesRegex(ValueError, error):
                         load_session(path)
                     self.assertEqual(path.read_bytes(), previous)
 

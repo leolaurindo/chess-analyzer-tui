@@ -104,6 +104,10 @@ stored locally:
 
 `--continue` cannot be combined with text, `--file`, or `--clip`.
 
+**Breaking save-format change:** Sessions and named library saves now use snapshot
+version 3 with required PGN headers. Older version 2 saves are unsupported; there
+is no migration. Reimport the original FEN/PGN and save a new analysis.
+
 ## Local analysis library
 
 - **c** opens the current position’s comment editor; **Ctrl+S** or Save applies

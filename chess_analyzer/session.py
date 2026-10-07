@@ -26,7 +26,7 @@ def analysis_to_data(analysis: Analysis) -> dict:
                             child.imported, child.comment, child.starting_comment])
     indices = {id(node): index for index, node in enumerate(nodes)}
     return {
-        "version": 2,
+        "version": 3,
         "headers": dict(analysis.headers),
         "comment": analysis.root.comment,
         "fen": analysis.root.board.fen(),
@@ -65,13 +65,13 @@ def save_session(analysis: Analysis, path: Path) -> None:
 
 def analysis_from_data(data: dict) -> Analysis:
     try:
-        if data["version"] != 2:
+        if data["version"] != 3:
             raise ValueError("unsupported session version")
         if any(type(data[key]) is not bool for key in ("has_pgn", "flipped")):
             raise ValueError("invalid session flags")
         if any(not isinstance(data[key], str) for key in ("fen", "white", "black", "comment")):
             raise ValueError("invalid session text")
-        headers = data.get("headers", {})
+        headers = data["headers"]
         if (not isinstance(headers, dict)
                 or any(not isinstance(key, str) or not isinstance(value, str)
                        for key, value in headers.items())):
