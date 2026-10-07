@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import re
 from collections.abc import Callable
 
 import chess
@@ -17,14 +18,25 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Resize
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Header, Input, Static, TextArea
 
 from .browser import GameBrowser
-from .dialogs import CommentEditor, LibraryDialog, SaveAnalysisDialog
+from .config import Account, save_account
+from .dialogs import (AccountSelectionDialog, AnalysisDialog, CommentEditor,
+                      DeleteAnalysisDialog, ExportDialog, HelpDialog, ImportDialog,
+                      LatestGameDialog, LibraryDialog, SaveAnalysisDialog)
+from .export import export_directory
 from .game import Analysis, Candidate, Node, history_to_san
 from .library import SavedAnalysis, library_path
 from .openings import opening_label
 from .piece_art import PIECE_ART
+
+
+CLOCK_TAG = re.compile(r"\[%clk\s+[^\]]*\]")
+
+
+def comment_text(text: str) -> str:
+    return CLOCK_TAG.sub("", text).strip()
 
 
 def side_label(color: str, name: str) -> str:
@@ -43,21 +55,27 @@ def format_score(score: chess.engine.PovScore) -> str:
 
 
 class EvaluationBar(Widget):
+    white_share = 0.5
+
     def render(self) -> Text:
-        outcome = self.app.analysis.current.board.outcome()
+        node = self.app.analysis.current
+        outcome = node.board.outcome()
         if outcome is not None:
-            white_share = 0.5 if outcome.winner is None else float(outcome.winner)
+            self.white_share = 0.5 if outcome.winner is None else float(outcome.winner)
         else:
-            candidate = next(iter(self.app.analysis.current.candidates), None)
-            score = candidate.score if candidate else "0.00"
-            if score.startswith("M"):
-                white_share = 1.0
-            elif score.startswith("-M"):
-                white_share = 0.0
-            else:
-                white_share = 1 / (1 + math.exp(-float(score) / 1.5)) if score != "?" else 0.5
+            selected = self.app.selected_move()
+            candidate = next((c for c in node.candidates if c.move == selected),
+                             next(iter(node.candidates), None))
+            if candidate is not None:
+                score = candidate.score
+                if score.startswith("M"):
+                    self.white_share = 1.0
+                elif score.startswith("-M"):
+                    self.white_share = 0.0
+                elif score != "?":
+                    self.white_share = 1 / (1 + math.exp(-float(score) / 1.5))
         height = max(1, self.size.height)
-        white_rows = round(height * white_share)
+        white_rows = round(height * self.white_share)
         return Text("\n").join(
             Text("  ", style=f"on {'#f0f0e8' if row < white_rows else '#30343b'}")
             for row in range(height)
@@ -143,19 +161,31 @@ class ChessAnalysisApp(App):
     #status { margin-top: 1; }
     """
     BINDINGS = [
-        Binding("left", "previous_position", "Back", priority=True),
+        Binding("left", "previous_position", "Back", show=False, priority=True),
         Binding("right", "next_position", "Follow", priority=True),
         Binding("enter", "next_position", "Follow", show=False, priority=True),
-        Binding("up", "select_move(-1)", "Choose", priority=True),
-        Binding("down", "select_move(1)", "Choose", priority=True),
-        Binding("escape", "return_to_game", "Original game", priority=True),
-        ("f", "flip_board", "Flip"),
-        ("r", "reanalyze", "Re-analyze"),
-        ("c", "edit_comment", "Comment"),
-        ("s", "save_analysis", "Save"),
-        ("l", "open_library", "Library"),
-        ("b", "browse_games", "Games"),
-        ("q", "quit", "Quit"),
+        Binding("up", "select_move(-1)", "Choose", show=False, priority=True),
+        Binding("down", "select_move(1)", "Choose", show=False, priority=True),
+        Binding("escape", "return_to_game", "Back to game", priority=True),
+        Binding("f", "flip_board", "Flip", show=False),
+        Binding("e", "export_analysis", "Export", show=False),
+        Binding("r", "reanalyze", "Re-analyze", show=False),
+        Binding("c", "edit_comment", "Comment", show=False),
+        Binding("s", "save_analysis", "Save", show=False),
+        Binding("l", "open_library", "Library", show=False),
+        ("b", "browse_games", "Browse"),
+        Binding("u", "select_account", "Account", show=False),
+        Binding("ctrl+l", "latest_game", "Latest game", show=False),
+        ("i", "import_analysis", "Import"),
+        Binding("h", "home_plain", "Home", show=False, priority=True),
+        Binding("g", "preserved_game", "Game", show=False),
+        Binding("f2", "home", "Home", show=False, priority=True),
+        Binding("pageup", "game_position(0)", "Game start", show=False, priority=True),
+        Binding("pagedown", "game_position(-1)", "Game end", show=False, priority=True),
+        Binding("question_mark", "help_plain", "Help", key_display="?", priority=True),
+        Binding("f1", "help", "Help", show=False, priority=True),
+        Binding("q", "quit_plain", "Quit", show=False, priority=True),
+        Binding("ctrl+q", "quit", "Quit", show=False, priority=True),
     ]
 
     def __init__(self, board: chess.Board, engine: chess.engine.UciProtocol,
@@ -164,18 +194,34 @@ class ChessAnalysisApp(App):
                  white_name: str = "White", black_name: str = "Black",
                  on_session_change: Callable[[Analysis], None] | None = None,
                  open_library: bool = False,
-                 browse_provider: str | None = None, browse_user: str | None = None):
+                 browse_provider: str | None = None, browse_user: str | None = None,
+                 open_browser: bool = False, open_latest: bool = False,
+                 account_error: str | None = None,
+                 follow_white: str | None = None, follow_black: str | None = None,
+                 account: Account | None = None):
         super().__init__()
         self.on_session_change = on_session_change
         self.open_library = open_library
+        self.open_browser, self.open_latest = open_browser, open_latest
+        self.account_error = account_error
+        self.follow_white, self.follow_black = follow_white, follow_black
         self.browse_provider = browse_provider
         self.browse_user = browse_user
+        self.account = account
         self.engine = engine
         self.think_time = think_time
         self.multipv = multipv
         self.ascii_pieces = ascii_pieces
         self.engine_name = engine_name
         self.analysis = Analysis.from_input(board, game, white_name, black_name)
+        self.orient_analysis(self.analysis)
+        self.home_analysis = (
+            self.analysis if game is None and board.fen() == chess.STARTING_FEN
+            and (white_name, black_name) == ("White", "Black")
+            else Analysis.from_input(chess.Board())
+        )
+        self.home_title = ""
+        self.preserved_analysis: tuple[Analysis, str] | None = None
         self.saved_title = ""
         self.analysis_requested = asyncio.Event()
 
@@ -200,13 +246,22 @@ class ChessAnalysisApp(App):
         self.refresh_ui()
         self.analyze_requested_position()
         self.analysis_loop()
-        self.save_session()
-        if self.open_library:
+        if not self.open_latest:
+            self.save_session()
+        if self.account_error:
+            self.notify(f"Could not load default account: {self.account_error} · u to set up",
+                        severity="warning")
+        if self.open_latest:
+            self.action_latest_game(white=self.follow_white, black=self.follow_black)
+        elif self.open_library:
             self.action_open_library()
-        elif self.browse_provider:
+        elif self.open_browser:
             self.action_browse_games()
 
     def save_session(self) -> None:
+        # Home is a scratch analysis while a game is parked for return/continue.
+        if self.analysis is self.home_analysis and self.preserved_analysis is not None:
+            return
         if self.on_session_change is not None:
             self.on_session_change(self.analysis)
 
@@ -214,17 +269,24 @@ class ChessAnalysisApp(App):
         self.screen.set_class(event.size.width < 64, "narrow")
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
+        if action in {"home_plain", "help_plain", "quit_plain"}:
+            return not isinstance(self.focused, (Input, TextArea))
+        if action in {"home", "help", "quit"}:
+            return True
         if isinstance(self.screen, ModalScreen):
             return False
-        if action == "browse_games":
-            return bool(self.browse_provider and self.browse_user)
+        if action == "preserved_game":
+            return self.analysis is self.home_analysis and self.preserved_analysis is not None
         return action != "return_to_game" or self.analysis.return_position is not None
 
     def refresh_ui(self) -> None:
         self.refresh_board()
         self.refresh_analysis_panel()
         board = self.analysis.current.board
-        info = Text("White to move" if board.turn else "Black to move", style="bold")
+        info = Text("Home · " if self.analysis is self.home_analysis else "", style="bold")
+        info.append("White to move" if board.turn else "Black to move")
+        if self.analysis is self.home_analysis and self.preserved_analysis is not None:
+            info.append(" · g: game", style="bold #e3b341")
         if board.is_check():
             info.append("   CHECKMATE" if board.is_checkmate() else "   CHECK", style="bold red")
         if self.analysis.current.is_mainline:
@@ -302,13 +364,12 @@ class ChessAnalysisApp(App):
                          else "Engine is thinking…", style="dim")
         self.query_one("#candidates", Static).update(lines)
         comments = Text()
-        if node.starting_comment:
-            comments.append(node.starting_comment + "\n\n")
-        if node.comment:
-            comments.append(node.comment)
+        if text := comment_text(node.starting_comment):
+            comments.append(text + "\n\n")
+        comments.append(comment_text(node.comment))
         selected_child = node.children.get(selected_move)
-        if selected_child and selected_child.starting_comment:
-            comments.append("\n\nVariation: " + selected_child.starting_comment)
+        if selected_child and (text := comment_text(selected_child.starting_comment)):
+            comments.append("\n\nVariation: " + text)
         comment_panel = self.query_one("#comments", Static)
         comment_panel.display = bool(comments.plain)
         comment_panel.update(comments)
@@ -428,22 +489,22 @@ class ChessAnalysisApp(App):
 
     def action_game_position(self, index: int) -> None:
         node = self.analysis.root
-        for _ in range(index):
-            if node.mainline_next is None:
-                break
+        while node.mainline_next is not None and index != 0:
             node = node.mainline_next
+            index -= 1
         self.analysis.return_position = None
         node.selected = 0
         self.show_position(node)
 
-    def show_position(self, node: Node) -> None:
+    def show_position(self, node: Node, *, persist: bool = True) -> None:
         self.analysis.current = node
         self.refresh_bindings()
         self.set_status("Analysis ready." if node.analyzed else "")
         self.refresh_ui()
         self.query_one("#candidates").scroll_visible(animate=False)
         self.analyze_requested_position()
-        self.save_session()
+        if persist:
+            self.save_session()
 
     def action_return_to_game(self) -> None:
         if self.analysis.return_position:
@@ -464,12 +525,23 @@ class ChessAnalysisApp(App):
         self.refresh_board()
         self.save_session()
 
+    def action_export_analysis(self) -> None:
+        self.push_screen(ExportDialog(self.analysis, export_directory()))
+
     def action_reanalyze(self) -> None:
         self.analysis.current.analyzed = False
         self.analyze_requested_position()
 
+    def orient_analysis(self, analysis: Analysis) -> None:
+        if self.account is not None:
+            analysis.orient_for(self.account.provider, self.account.username)
+
     def replace_analysis(self, analysis: Analysis, title: str = "") -> None:
+        self.orient_analysis(analysis)
+        if self.analysis is self.home_analysis:
+            self.home_title = self.saved_title
         self.analysis = analysis
+        self.preserved_analysis = None
         self.saved_title = title
         self.sub_title = title
         self.show_position(analysis.current)
@@ -479,11 +551,11 @@ class ChessAnalysisApp(App):
 
         def edited(comment: str | None) -> None:
             if comment is not None:
-                node.comment = comment
+                node.comment = " ".join([comment.strip(), *CLOCK_TAG.findall(node.comment)]).strip()
                 self.save_session()
             self.refresh_ui()
 
-        self.push_screen(CommentEditor(node.comment), edited)
+        self.push_screen(CommentEditor(comment_text(node.comment)), edited)
 
     def action_save_analysis(self) -> None:
         title = self.saved_title or f"{self.analysis.white_name} vs {self.analysis.black_name}"
@@ -510,3 +582,148 @@ class ChessAnalysisApp(App):
     def action_browse_games(self) -> None:
         if self.browse_provider and self.browse_user:
             self.push_screen(GameBrowser(self.browse_provider, self.browse_user), self.analysis_selected)
+        else:
+            self.action_select_account()
+
+    def action_latest_game(self, *, white: str | None = None, black: str | None = None) -> None:
+        if self.browse_provider and self.browse_user:
+            self.push_screen(LatestGameDialog(self.browse_provider, self.browse_user,
+                                             white=white, black=black), self.analysis_selected)
+        else:
+            self.notify("No default account configured · press u to save a public account",
+                        severity="warning")
+
+    def action_select_account(self) -> None:
+        self.push_screen(AccountSelectionDialog(self.browse_provider, self.browse_user),
+                         self.account_selected)
+
+    def account_selected(self, account: tuple[str, str] | None) -> None:
+        if account is not None:
+            try:
+                saved = Account(*account)
+                save_account(saved)
+            except (OSError, ValueError) as exc:
+                self.notify(f"Could not save default account: {exc} · account unchanged",
+                            severity="error")
+                return
+            self.account = saved
+            self.browse_provider, self.browse_user = saved.provider, saved.username
+            self.orient_analysis(self.analysis)
+            self.refresh_ui()
+            self.action_browse_games()
+
+    def action_import_analysis(self) -> None:
+        self.push_screen(ImportDialog(), self.analysis_selected)
+
+    async def cancel_dialogs(self) -> None:
+        while isinstance(self.screen, ModalScreen):
+            screen = self.screen
+            if isinstance(screen, AnalysisDialog):
+                screen.cancel_pending()
+            else:
+                screen.workers.cancel_node(screen)
+            await screen.dismiss(None)
+
+    async def action_home_plain(self) -> None:
+        await self.action_home()
+
+    async def action_home(self) -> None:
+        await self.cancel_dialogs()
+        if self.analysis is not self.home_analysis:
+            self.preserved_analysis = self.analysis, self.saved_title
+            self.analysis, self.saved_title = self.home_analysis, self.home_title
+        self.sub_title = self.saved_title or "Home"
+        self.analysis.return_position = None
+        self.show_position(self.analysis.root, persist=False)
+
+    def action_preserved_game(self) -> None:
+        if self.analysis is self.home_analysis and self.preserved_analysis is not None:
+            self.home_title = self.saved_title
+            self.analysis, self.saved_title = self.preserved_analysis
+            self.preserved_analysis = None
+            self.sub_title = self.saved_title
+            self.show_position(self.analysis.current, persist=False)
+
+    async def action_quit_plain(self) -> None:
+        await self.action_quit()
+
+    async def action_quit(self) -> None:
+        await self.cancel_dialogs()
+        self.exit()
+
+    async def action_help_plain(self) -> None:
+        await self.action_help()
+
+    async def action_help(self) -> None:
+        if isinstance(self.screen, HelpDialog):
+            await self.screen.dismiss(None)
+            return
+        screen = self.screen
+        navigation = (
+            "Navigation\nF2: Home everywhere\nh: Home outside text fields"
+            "\nF1: help everywhere\n?: help outside text fields"
+            "\nCtrl+Q: quit everywhere\nq: quit outside text fields"
+            "\nEsc: cancel / close help"
+        )
+        if isinstance(screen, GameBrowser):
+            title = "Browser help"
+            details = "\n\nBrowse\n↑/↓: choose game · Enter: open\n←/→: newer / older · r: reload"
+        elif isinstance(screen, LatestGameDialog):
+            title = "Latest game help"
+            details = ("\n\nLatest available game\nr: retry once · Esc: cancel"
+                       "\nOnly completed standard chess is loaded."
+                       "\nChess.com public archives can lag.")
+        elif isinstance(screen, LibraryDialog):
+            title = "Library help"
+            details = "\n\nLibrary\n↑/↓: choose analysis\nEnter: open selected analysis\nDelete: remove selected save (confirmation required)"
+        elif isinstance(screen, ExportDialog):
+            title = "Export help"
+            details = ("\n\nFile export\nChoose FEN position or full analysis PGN."
+                       "\nType a full path or a file name in the default folder."
+                       "\nExport / Enter: confirm writing\nExisting files need explicit replacement permission."
+                       "\nThe saved path stays visible until Done / Close."
+                       "\nEsc cancels before writing, or closes after export.")
+        elif isinstance(screen, DeleteAnalysisDialog):
+            title = "Delete help"
+            details = "\n\nDelete saved analysis\nClick Delete to confirm; Esc cancels.\nThe current game and continue snapshot are untouched."
+        elif isinstance(screen, AccountSelectionDialog):
+            title = "Account help"
+            details = (
+                "\n\nBrowse\nTab: change field"
+                "\n↑/↓: change provider, even while typing username"
+                "\nEnter in username: save default and browse\nPublic username: letters, numbers, _ or -"
+            )
+        elif isinstance(screen, (CommentEditor, SaveAnalysisDialog, ImportDialog)):
+            title = ("Comment help" if isinstance(screen, CommentEditor) else
+                     "Save help" if isinstance(screen, SaveAnalysisDialog) else "Import help")
+            details = (
+                "\n\nEditing / import\nTab: change field\nCtrl+S: apply / import"
+                "\nType ?, h and q normally in text fields."
+                "\nImported clock tags are hidden and preserved."
+            )
+            if isinstance(screen, SaveAnalysisDialog):
+                details += "\nEnter in name: save\nReplacement requires the checkbox."
+            if isinstance(screen, ImportDialog):
+                details += "\nPaste FEN, PGN or HTTPS URL.\nLoading is cancellable."
+        else:
+            title = "Home help" if self.analysis is self.home_analysis else "Analysis help"
+            navigation += ("\nb: online browser · l: library\nu: save / change default account"
+                           "\nCtrl+L: latest available completed game")
+            if self.analysis is self.home_analysis and self.preserved_analysis is not None:
+                navigation += "\ng: return to preserved game"
+            details = (
+                "\n\nAnalysis\n↑/↓: choose move\n→ / Enter: follow · ←: back"
+                "\nPgUp: game start · PgDown: last original position"
+                "\nFor FEN input, both return to the imported FEN."
+                "\nf: flip · r: reanalyze\nc: edit position comment"
+            )
+            if self.analysis.return_position is not None:
+                details += "\nEsc: return to original game"
+            details += ("\n\nImport / export / save\ni: import FEN / PGN / URL"
+                        "\ne: export FEN / PGN to file"
+                        "\ns: save named analysis")
+        # A covered loader must not dismiss the help screen when its result arrives.
+        if isinstance(screen, (ImportDialog, GameBrowser, LatestGameDialog)):
+            screen.pause_for_help()
+        self.push_screen(HelpDialog(title, navigation + details +
+                                   "\n\nEsc / F1 / ?: close help only.\nDrafts are preserved. Active downloads\nare canceled; retry after closing help."))

@@ -11,7 +11,7 @@ from rich.style import Style
 from textual.widgets import Checkbox, Input, TextArea
 
 from chess_analyzer.cli import find_stockfish
-from chess_analyzer.game import Analysis
+from chess_analyzer.game import Analysis, Candidate
 from chess_analyzer.input import parse_input
 from chess_analyzer.library import list_analyses, load_analysis
 from chess_analyzer.session import load_session, save_session
@@ -108,6 +108,45 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(pilot.press("right"), timeout=2)
             await wait_for_analysis(app, pilot)
             self.assertTrue(app.analysis.current.candidates)
+
+    async def test_evaluation_bar_follows_selection_and_keeps_last_value_while_thinking(self):
+        app = ChessAnalysisApp(chess.Board(), self.engine, 30, 3)
+        app.analysis.root.candidates = [
+            Candidate(chess.Move.from_uci("e2e4"), "+3.00", "1. e4"),
+            Candidate(chess.Move.from_uci("d2d4"), "-3.00", "1. d4"),
+        ]
+        app.analysis.root.analyzed = True
+        async with app.run_test(size=(120, 42)) as pilot:
+            bar = app.query_one("#evaluation-bar")
+
+            def colors():
+                return [Style.parse(span.style).bgcolor.name for span in bar.render().spans]
+
+            positive = colors()
+            self.assertGreater(positive.count("#f0f0e8"), len(positive) / 2)
+            await pilot.press("down")
+            negative = colors()
+            with self.subTest("candidate selection"):
+                self.assertLess(negative.count("#f0f0e8"), len(negative) / 2)
+            await pilot.press("right")
+            self.assertEqual(app.analysis.current.candidates, [])
+            self.assertFalse(app.analysis.current.analyzed)
+            with self.subTest("pending analysis"):
+                self.assertEqual(colors(), negative)
+            app.analysis.current.candidates = [
+                Candidate(chess.Move.from_uci("d7d5"), "?", "1... d5")]
+            app.refresh_board()
+            self.assertEqual(colors(), negative)
+            app.analysis.current.candidates[0].score = "+0.00"
+            app.refresh_board()
+            even = colors()
+            self.assertLessEqual(abs(even.count("#f0f0e8") - even.count("#30343b")), 1)
+            app.analysis.current.candidates[0].score = "M3"
+            app.refresh_board()
+            self.assertEqual(set(colors()), {"#f0f0e8"})
+            app.replace_analysis(Analysis.from_input(chess.Board("7k/5K2/6Q1/8/8/8/8/8 b - - 0 1")))
+            drawn = colors()
+            self.assertLessEqual(abs(drawn.count("#f0f0e8") - drawn.count("#30343b")), 1)
 
     async def test_evaluation_bar_uses_terminal_game_result(self):
         white_mate = chess.Board("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1")

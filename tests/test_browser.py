@@ -10,6 +10,7 @@ from textual.widgets import OptionList
 
 from chess_analyzer.browser import GameBrowser
 from chess_analyzer.cli import find_stockfish
+from chess_analyzer.config import Account
 from chess_analyzer.online import GamePage, OnlineGame
 from chess_analyzer.tui import ChessAnalysisApp
 
@@ -45,7 +46,8 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
             listed = games if provider == "chess.com" else [replace(game, pgn=None) for game in games]
             recent = [replace(listed[0], id="recent01")]
             app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3,
-                                   browse_provider=provider, browse_user="Alice")
+                                   browse_provider=provider, browse_user="Alice", open_browser=True,
+                                   account=Account(provider, "Carol"))
             with (self.subTest(provider=provider),
                   patch("chess_analyzer.browser.chesscom_months", return_value=["2024-01", "2023-12"]),
                   patch("chess_analyzer.browser.chesscom_games", side_effect=lambda user, month:
@@ -86,6 +88,8 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
                         export.assert_called_once_with("older002")
                     self.assertEqual((app.analysis.white_name, app.analysis.black_name), ("Alice", "Carol"))
                     self.assertEqual(app.analysis.root.comment, "Introduction")
+                    self.assertTrue(app.analysis.flipped)
+                    self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · Carol")
                     self.assertEqual(app.analysis.current.board.peek().uci(), "e7e5")
                     imported = app.analysis
                     await pilot.press("b", "escape")
@@ -100,7 +104,7 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
             return []
 
         app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3,
-                               browse_provider="chess.com", browse_user="Alice")
+                               browse_provider="chess.com", browse_user="Alice", open_browser=True)
         with patch("chess_analyzer.browser.chesscom_months", side_effect=ValueError("Rate limited")):
             async with app.run_test() as pilot:
                 previous = app.analysis

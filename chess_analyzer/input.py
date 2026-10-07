@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 import chess
@@ -9,6 +10,7 @@ import chess.pgn
 import pyperclip
 
 
+from .clipboard import paste_text
 from .online import load_url
 
 
@@ -28,7 +30,9 @@ def parse_input(text: str) -> tuple[chess.Board, chess.pgn.Game | None, str, str
         raise ValueError("Input does not contain a FEN position or PGN game.")
     if game.errors:
         raise ValueError(f"Could not parse PGN: {game.errors[0]}")
-    if not game.variations:
+    # python-chess also reads arbitrary prose as an empty game.
+    if (not game.variations and "FEN" not in game.headers
+            and not re.match(r'\[[A-Za-z0-9][A-Za-z0-9_+#=:-]*\s+"[^\r\n]*"\]\s*(?:\n|$)', text)):
         raise ValueError("Input does not contain a valid FEN or PGN game with moves.")
     return (game.board(), game,
             player_name(game.headers.get("White"), "White"),
@@ -45,7 +49,7 @@ def load_input(text: str | None = None, *, file: str | None = None,
             raise SystemExit(f"Could not read file: {exc}") from exc
     elif clipboard:
         try:
-            text = pyperclip.paste()
+            text = paste_text()
         except (pyperclip.PyperclipException, OSError) as exc:
             raise SystemExit(f"Could not read clipboard: {exc}") from exc
     if text.strip().lower().startswith(("https://", "http://")):
