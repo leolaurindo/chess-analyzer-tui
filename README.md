@@ -72,11 +72,26 @@ On Linux, install `wl-clipboard` for Wayland, or `xclip` / `xsel` for X11;
 a graphical session is required. macOS and Windows use their built-in clipboard
 support.
 
+## Clipboard export
+
+- **Ctrl+F** copies the current displayed position as FEN.
+- **Ctrl+P** copies the full analysis as PGN: the original mainline first, imported
+  and explored variations, position comments, and variation starting comments.
+  Engine suggestions are included only after you follow them.
+
+Original PGN headers (including Result, Date, Event, and Site) survive sessions
+and named saves. `--white` / `--black` overrides are reflected in exported PGN.
+Nonstandard starting positions include SetUp/FEN headers so they reopen correctly,
+including analyses with no moves yet.
+Clipboard failures are shown without changing the analysis. These shortcuts are
+available on the analysis screen, not inside dialogs. Clipboard export uses the
+same platform support described above; there is no file-export dialog.
+
 ## Continue an analysis
 
 Run `chess-analyzer --continue` (or `-c`) to restore the last game, explored
-branches, imported PGN comments and side variations, current position, player names,
-and board orientation. Engine analysis
+branches, original PGN headers, imported comments and side variations, current
+position, player names, and board orientation. Engine analysis
 is recalculated using the current command-line settings.
 
 The session saves automatically as you navigate or flip the board. Starting a
@@ -95,8 +110,8 @@ stored locally:
   the edit, and Esc cancels. An empty comment removes it. Imported comments can
   be edited, and explored positions can have their own comments.
 - **s** saves the entire analysis under a name: comments, imported and explored
-  variations, current position, player names, and orientation. Existing names
-  require explicit replacement confirmation. Engine evaluations are recalculated.
+  variations, original PGN headers, current position, player names, and orientation.
+  Existing names require explicit replacement confirmation. Engine evaluations are recalculated.
 - **l** opens the library; choose with ↑/↓ and Enter. Esc leaves the current
   analysis unchanged. You can also start with `chess-analyzer --library`.
 

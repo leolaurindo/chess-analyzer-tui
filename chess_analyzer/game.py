@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 import chess
 import chess.pgn
 
+from .input import player_name
+
 
 @dataclass
 class Candidate:
@@ -45,6 +47,7 @@ class Analysis:
     white_name: str = "White"
     black_name: str = "Black"
     flipped: bool = False
+    headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def has_pgn(self) -> bool:
@@ -72,7 +75,26 @@ class Analysis:
         current = root
         while current.mainline_next:
             current = current.mainline_next
-        return cls(root, current, white_name=white_name, black_name=black_name)
+        return cls(root, current, white_name=white_name, black_name=black_name,
+                   headers=dict(game.headers) if game is not None else {})
+
+    def to_pgn(self) -> str:
+        game = chess.pgn.Game()
+        game.setup(self.root.board)
+        game.headers.update(self.headers)
+        for color, name in (("White", self.white_name), ("Black", self.black_name)):
+            if color not in self.headers or name != player_name(self.headers[color], color):
+                game.headers[color] = name
+        game.comment = self.root.comment
+        pending = [(self.root, game)]
+        while pending:
+            node, target = pending.pop()
+            children = sorted(node.children.values(), key=lambda child: child is not node.mainline_next)
+            for child in children:
+                variation = target.add_variation(child.move_from_parent, comment=child.comment,
+                                                 starting_comment=child.starting_comment)
+                pending.append((child, variation))
+        return game.accept(chess.pgn.StringExporter(headers=True, variations=True, comments=True))
 
 
 def history_to_san(node: Node) -> str:
