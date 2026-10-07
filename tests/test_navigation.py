@@ -50,7 +50,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
     def assert_navigation_footer(self, app):
         keys = list(app.screen.query_one(Footer).query("FooterKey"))
         rendered = "".join(str(key.render()) for key in keys)
-        self.assertIn("Ctrl+H Home", rendered)
+        self.assertIn("F2 Home", rendered)
         self.assertIn("F1 Help", rendered)
         for key in keys:
             self.assertLessEqual(key.region.right, 40)
@@ -136,7 +136,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
                             self.assertIsInstance(app.screen, HelpDialog)
                             self.assertEqual(len(app.screen_stack), 3)
                             self.assert_navigation_footer(app)
-                        await pilot.press("ctrl+h")
+                        await pilot.press("f2")
                         self.assertEqual(len(app.screen_stack), 1)
                         self.assertIs(app.analysis, home)
                         self.assertEqual(home.current.comment, "")
@@ -168,8 +168,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIsInstance(app.screen, HelpDialog)
                     self.assertEqual(app.screen.title, title)
                     self.assertNotIn("f: flip", app.screen.text)
-                    self.assertNotIn("Ctrl+F: copy", app.screen.text)
-                    self.assertNotIn("Ctrl+P: copy", app.screen.text)
+                    self.assertNotIn("e: export FEN / PGN", app.screen.text)
                     self.assertEqual(len(app.screen_stack), 3)
                     self.assert_navigation_footer(app)
                     self.assert_fits(app, "#cancel")
@@ -191,8 +190,8 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("question_mark")
             self.assertEqual(app.screen.title, "Home help")
             self.assertIn("f: flip", app.screen.text)
-            self.assertIn("Ctrl+F: copy current FEN", app.screen.text)
-            self.assertIn("Ctrl+P: copy full analysis PGN", app.screen.text)
+            self.assertIn("e: export FEN / PGN to file", app.screen.text)
+            self.assertIn("PgDown: last original position", app.screen.text)
             self.assertNotIn("g: return", app.screen.text)
             help_scroll = app.screen.query_one(VerticalScroll)
             help_scroll.focus()
@@ -235,7 +234,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIs(app.screen, browser)
                 await pilot.press("escape", "b")
                 self.assertIsInstance(app.screen, GameBrowser)
-                await pilot.press("ctrl+h")
+                await pilot.press("f2")
                 self.assertEqual(len(app.screen_stack), 1)
                 await pilot.press("u")
                 self.assertIsInstance(app.screen, AccountSelectionDialog)
@@ -265,7 +264,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.analysis.current.board.peek().uci(), "e7e5")
             self.assertEqual(app.analysis.root.mainline_next.comment, "Imported")
             game = app.analysis
-            for cancel in ("escape", "ctrl+h", "ctrl+q"):
+            for cancel in ("escape", "f2", "ctrl+q"):
                 started, release = threading.Event(), threading.Event()
                 def blocked(url):
                     started.set()
@@ -281,7 +280,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
                     finally:
                         release.set()
                     await pilot.pause()
-                    if cancel == "ctrl+h":
+                    if cancel == "f2":
                         self.assertIs(app.preserved_analysis[0], game)
                         await pilot.press("g")
                     self.assertIs(app.analysis, game)

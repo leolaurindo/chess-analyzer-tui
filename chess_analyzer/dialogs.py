@@ -11,10 +11,11 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Footer, Input, Label, OptionList, Select, Static, TextArea
 
+from .export import export_analysis
 from .follow import load_latest_game
 from .game import Analysis
 from .input import load_input, player_name
-from .library import SavedAnalysis, list_analyses, load_analysis, save_analysis
+from .library import SavedAnalysis, delete_analysis, list_analyses, load_analysis, save_analysis
 from .online import validate_username
 
 
@@ -35,7 +36,7 @@ class AnalysisDialog(ModalScreen):
     BINDINGS = [
         ("escape", "cancel", "Back"),
         Binding("f1", "app.help", "Help", key_display="F1", priority=True),
-        Binding("ctrl+h", "app.home", "Home", key_display="Ctrl+H", priority=True),
+        Binding("f2", "app.home", "Home", key_display="F2", priority=True),
     ]
 
     def cancel_pending(self) -> None:
@@ -101,7 +102,114 @@ class SaveAnalysisDialog(AnalysisDialog):
             self.dismiss(entry)
 
 
+class ExportDialog(AnalysisDialog):
+    DEFAULT_CSS = """
+    ExportDialog > Vertical { width: 95%; height: 90%; padding: 0 1; }
+    ExportDialog VerticalScroll { height: 1fr; }
+    """
+
+    def __init__(self, analysis: Analysis, directory: Path):
+        super().__init__()
+        self.analysis = analysis
+        self.directory = directory.expanduser().resolve()
+        self.format = "pgn"
+        self.exported: Path | None = None
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Export · choose format and destination")
+            with VerticalScroll():
+                yield Label(Text(f"Default folder:\n{self.directory}"), id="export-folder")
+                yield Select([("Current position (FEN)", "fen"), ("Full analysis (PGN)", "pgn")],
+                             value=self.format, allow_blank=False, id="export-format")
+                yield Input(str(self.directory / "analysis.pgn"), id="export-path")
+                yield Checkbox("Allow replacing an existing file", id="overwrite")
+                yield Static(id="export-status")
+            with Horizontal():
+                yield Button("Export", id="export", variant="primary")
+                yield Button("Cancel", id="cancel")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.update_destination()
+        self.query_one("#export-path", Input).focus()
+
+    def destination(self) -> Path:
+        value = self.query_one("#export-path", Input).value.strip()
+        if not value:
+            raise ValueError("Enter a file name or path.")
+        path = Path(value).expanduser()
+        return (path if path.is_absolute() else self.directory / path).resolve()
+
+    @on(Input.Changed, "#export-path")
+    def update_destination(self) -> None:
+        if self.exported is not None:
+            return
+        try:
+            text = f"Destination:\n{self.destination()}\nExport confirms writing this file."
+        except (OSError, ValueError, RuntimeError) as exc:
+            text = str(exc)
+        self.query_one("#export-status", Static).update(Text(text))
+
+    @on(Select.Changed, "#export-format")
+    def change_format(self, event: Select.Changed) -> None:
+        field = self.query_one("#export-path", Input)
+        if field.value == str(self.directory / f"analysis.{self.format}"):
+            field.value = str(self.directory / f"analysis.{event.value}")
+        self.format = str(event.value)
+        self.update_destination()
+
+    @on(Button.Pressed, "#export")
+    @on(Input.Submitted, "#export-path")
+    def action_export(self) -> None:
+        if self.exported is not None:
+            self.dismiss(self.exported)
+            return
+        status = self.query_one("#export-status", Static)
+        try:
+            self.exported = export_analysis(self.analysis, self.destination(), self.format,
+                                            overwrite=self.query_one(Checkbox).value)
+        except FileExistsError:
+            status.update("File exists. Choose another path or explicitly allow replacement.")
+            status.scroll_visible(animate=False)
+        except (OSError, ValueError, RuntimeError) as exc:
+            status.update(Text(f"Could not export: {exc}"))
+            status.scroll_visible(animate=False)
+        else:
+            for selector in ("#export-folder", "#export-format", "#export-path", "#overwrite"):
+                self.query_one(selector).display = False
+            status.update(Text(f"Exported {self.format.upper()} to:\n{self.exported}\nPress Done to close."))
+            self.query_one("#export", Button).label = "Done"
+            self.query_one("#cancel", Button).label = "Close"
+            self.query_one("#export", Button).focus()
+            status.scroll_visible(animate=False)
+
+
+class DeleteAnalysisDialog(AnalysisDialog):
+    def __init__(self, title: str):
+        super().__init__()
+        self.title = title
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(Text(f'Delete saved analysis “{self.title}”?'))
+            yield Static("The current analysis and continue snapshot will not change.")
+            with Horizontal():
+                yield Button("Delete", id="delete", variant="error")
+                yield Button("Cancel", id="cancel")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#cancel", Button).focus()
+
+    @on(Button.Pressed, "#delete")
+    def confirm(self) -> None:
+        self.dismiss(True)
+
+
 class LibraryDialog(AnalysisDialog):
+    BINDINGS = [Binding("delete", "delete_selected", "Delete", show=False)]
+
     def __init__(self, directory: Path):
         super().__init__()
         self.directory = directory
@@ -109,25 +217,46 @@ class LibraryDialog(AnalysisDialog):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("Saved analyses · ↑/↓ choose · Enter opens · Esc cancels")
+            yield Label("Saved analyses · ↑/↓ choose · Enter opens · Delete removes")
             yield OptionList(id="analyses")
             yield Static(id="error")
         yield Footer()
 
     def on_mount(self) -> None:
+        self.reload_analyses()
+
+    def reload_analyses(self, selected: int = 0) -> None:
         try:
             self.entries, warnings = list_analyses(self.directory)
         except OSError as exc:
             self.query_one("#error", Static).update(Text(str(exc)))
             return
         options = self.query_one(OptionList)
+        options.clear_options()
         options.add_options(Text(entry.title) for entry in self.entries)
-        options.highlighted = 0 if self.entries else None
+        options.highlighted = min(selected, len(self.entries) - 1) if self.entries else None
         options.focus()
         message = "\n".join(warnings)
         if not self.entries:
             message = "No saved analyses yet. Press s in analysis to save one.\n" + message
         self.query_one("#error", Static).update(Text(message.strip()))
+
+    def action_delete_selected(self) -> None:
+        selected = self.query_one(OptionList).highlighted
+        if selected is None:
+            return
+        entry = self.entries[selected]
+
+        def confirmed(result: bool | None) -> None:
+            if result:
+                try:
+                    delete_analysis(entry.path)
+                except OSError as exc:
+                    self.query_one("#error", Static).update(Text(f"Could not delete analysis: {exc}"))
+                else:
+                    self.reload_analyses(selected)
+
+        self.app.push_screen(DeleteAnalysisDialog(entry.title), confirmed)
 
     @on(OptionList.OptionSelected)
     def open_selected(self, event: OptionList.OptionSelected) -> None:
@@ -142,6 +271,10 @@ class LibraryDialog(AnalysisDialog):
 
 class AccountSelectionDialog(AnalysisDialog):
     """Return a validated (provider, username) without storing configuration."""
+    BINDINGS = [
+        Binding("up", "cycle_provider", "Provider", show=False, priority=True),
+        Binding("down", "cycle_provider", "Provider", show=False, priority=True),
+    ]
 
     def __init__(self, provider: str | None = None, username: str | None = None):
         super().__init__()
@@ -149,7 +282,7 @@ class AccountSelectionDialog(AnalysisDialog):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("Save a default public account and browse")
+            yield Label("Default account · ↑/↓ changes provider · Tab changes field")
             yield Select([("Chess.com", "chess.com"), ("Lichess", "lichess")],
                          value=self.provider or "chess.com", allow_blank=False, id="provider")
             yield Input(self.username or "", placeholder="Public username", id="username")
@@ -161,6 +294,11 @@ class AccountSelectionDialog(AnalysisDialog):
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
+
+    def action_cycle_provider(self) -> None:
+        provider = self.query_one(Select)
+        provider.expanded = False
+        provider.value = "lichess" if provider.value == "chess.com" else "chess.com"
 
     @on(Button.Pressed, "#browse")
     @on(Input.Submitted)
@@ -282,7 +420,6 @@ class LatestGameDialog(AnalysisDialog):
                 if override is not None and override.strip() not in {"", "?"}:
                     name = player_name(override, color)
                     setattr(analysis, color.lower() + "_name", name)
-                    analysis.headers[color] = name
         except (OSError, ValueError) as exc:
             status.update(Text(f"Could not load latest game: {exc} · r retries"))
             retry.disabled = False

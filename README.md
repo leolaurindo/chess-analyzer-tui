@@ -71,23 +71,35 @@ Options:
 
 Copy a FEN position or PGN game and run `chess-analyzer --clip`.
 On Linux, install `wl-clipboard` for Wayland, or `xclip` / `xsel` for X11;
-a graphical session is required. macOS and Windows use their built-in clipboard
-support.
+a graphical session is required. The active Wayland/X11 clipboard is preferred
+on Linux, including WSL, rather than silently choosing a different host clipboard.
+macOS and Windows use their built-in clipboard support.
 
-## Clipboard export
+## File export
 
-- **Ctrl+F** copies the current displayed position as FEN.
-- **Ctrl+P** copies the full analysis as PGN: the original mainline first, imported
-  and explored variations, position comments, and variation starting comments.
-  Engine suggestions are included only after you follow them.
+Press **e** from analysis or Home to open export. Choose **FEN** for the displayed
+position or **PGN** for the full analysis: original mainline, imported/explored
+variations, and comments. Unfollowed engine suggestions are excluded.
 
-Original PGN headers (including Result, Date, Event, and Site) survive sessions
-and named saves. `--white` / `--black` overrides are reflected in exported PGN.
-Nonstandard starting positions include SetUp/FEN headers so they reopen correctly,
-including analyses with no moves yet.
-Clipboard failures are shown without changing the analysis. These shortcuts are
-available on the analysis screen, not inside dialogs. Clipboard export uses the
-same platform support described above; there is no file-export dialog.
+Type a file name or a full destination path. A file name alone uses the global
+application data folder's `exports` directory:
+
+- Linux: `$XDG_DATA_HOME/chess-analyzer/exports`, or `~/.local/share/chess-analyzer/exports`
+- macOS: `~/Library/Application Support/chess-analyzer/exports`
+- Windows: `%LOCALAPPDATA%\chess-analyzer\exports`
+
+The dialog prints the default folder and resolved destination before writing.
+**Export** or Enter confirms the write; an existing file requires explicit
+replacement permission. After success, the full saved path stays in the dialog
+until you press **Done**, Close, or Esc. Canceling before Export creates no file.
+Errors leave the analysis and existing destination unchanged; writes are atomic.
+
+Original PGN headers survive sessions and named saves; player display overrides
+are reflected in the exported PGN. Nonstandard starting positions include
+SetUp/FEN headers, including analyses with no moves yet.
+
+Ctrl+F / Ctrl+P clipboard export has been removed. Clipboard input via `--clip`
+is still available.
 
 ## Continue an analysis
 
@@ -120,6 +132,9 @@ is no migration. Reimport the original FEN/PGN and save a new analysis.
   Existing names require explicit replacement confirmation. Engine evaluations are recalculated.
 - **l** opens the library; choose with ↑/↓ and Enter. Esc leaves the current
   analysis unchanged. You can also start with `chess-analyzer --library`.
+- **Delete** in the library removes the selected named save after confirmation.
+  Cancel is focused by default. Deleting a save does not change the currently
+  opened analysis or its automatic continue snapshot.
 
 Named saves are independent of the automatic `--continue` snapshot. Further
 edits require **s** to update the named save; changing games does not change it.
@@ -172,7 +187,8 @@ and [Lichess game export API](https://lichess.org/api#tag/Games/operation/apiGam
 ## Latest available game
 
 1. Run `chess-analyzer`, press **u**, choose Chess.com or Lichess, and enter a
-   public username. Enter or **Save & browse** persists that single default.
+   public username. ↑/↓ changes provider, including while typing the username.
+   Enter or **Save & browse** persists that single default.
 2. Run `chess-analyzer -f` / `--follow`, or press **Ctrl+L** from Home/analysis,
    to load its latest available completed standard-chess game at the final position.
    **b** browses that account's other games; **u** changes the default.
@@ -239,9 +255,14 @@ Plain startup opens **Home**, the initial-position chess analysis, without any
 network request. Explicit inputs and startup library/browser options still open
 what you requested.
 
-- **h** goes Home outside text fields; **Ctrl+H** works on every screen, including
-  dialogs. It always shows the initial position, retaining the scratch tree,
+- **h** goes Home outside text fields; **F2** works on every screen, including
+  dialogs. Ctrl+H is not used because terminals interpret it as Backspace.
+  Home always shows the initial chess position, retaining the scratch tree,
   and cancels pending edits/downloads without applying them.
+- **PgUp** rewinds the current game to its own starting position; **PgDown** goes
+  to its last original position, never to an explored engine/side variation.
+  For FEN input, both return to the imported FEN, even after exploring moves.
+  Neither replaces the current game or its tree. The Home key is not bound.
 - **g** on Home returns to the preserved game with its exact position, comments,
   branches, and orientation. Home's own analysis is retained separately. While
   a game is preserved, Home edits/navigation do not replace its `--continue`
@@ -261,13 +282,21 @@ what you requested.
   dialogs. Plain `h`, `q`, and `?` remain typeable in inputs and text areas.
 
 Only help, Home, and quit are global. Analysis commands do not leak into dialogs.
-**Ctrl+F** copies the current FEN; **Ctrl+P** copies the full analysis PGN.
+**e** exports the current FEN or full analysis PGN to a file.
 
 ## Navigation
 
 PGNs open at the final position and use their `White`/`Black` headers for player labels
 when present. Use `--white` and `--black` to set or override names, including for FENs.
+When original player names or provider profile URLs identify the saved account,
+newly opened games put that player at the bottom (Black automatically flips).
+This applies to follow, browser, imported games, and library loads. Display-name
+overrides do not replace original player identity. **f** still flips manually;
+`--continue` preserves the saved orientation instead of forcing it again.
+
 PGN comments (including Lichess study annotations) appear at their own positions.
+Imported `[%clk ...]` clock annotations are hidden from display/comment editing,
+but remain in saved analyses and PGN exports, even if you clear the prose comment.
 Imported side variations are listed alongside engine moves; follow them with the
 same keys or mouse clicks. Comments stay attached to that game's move tree, not
 other games or engine-generated positions.
@@ -287,7 +316,8 @@ Branches are retained, and navigation never waits for analysis.
 
 Use at least 40×24 terminal cells. Larger boards use multiline pieces; smaller
 ones use chess glyphs. Narrow layouts stack the panels; scroll with the mouse
-wheel or Page Up/Down. Blue highlights the selected move, yellow the previous
+wheel. PgUp/PgDown navigate the game's boundaries on the analysis screen, and
+scroll within help/dialogs. Blue highlights the selected move, yellow the previous
 move, and red a checked king.
 
 ## Opening data credits
@@ -313,7 +343,7 @@ is released under [MIT](LICENSE).
 
 Application modules live in `chess_analyzer/`: `cli.py`, `tui.py`, `input.py`,
 `game.py`, `session.py`, `library.py`, `online.py`, `browser.py`, `follow.py`,
-`config.py`, and `dialogs.py`.
+`config.py`, `clipboard.py` (input only), `export.py`, and `dialogs.py`.
 Piece artwork and the bundled opening dataset are also inside this package.
 Run from the checkout with `uv run chess-analyzer` or
 `uv run python -m chess_analyzer.cli`.

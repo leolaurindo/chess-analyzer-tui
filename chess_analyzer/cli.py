@@ -100,7 +100,8 @@ async def run_app(args, board: chess.Board, engine_path: str, game: chess.pgn.Ga
                                browse_user=args.user or (args.account.username if args.account else None),
                                open_browser=bool(args.browse), open_latest=args.follow,
                                account_error=args.account_error,
-                               follow_white=args.white, follow_black=args.black)
+                               follow_white=args.white, follow_black=args.black,
+                               account=args.account)
         if session is not None:
             app.analysis = session
         await app.run_async()
@@ -180,12 +181,6 @@ def main() -> None:
     black_name = pgn_black if args.follow else player_name(args.black, pgn_black)
     if session is not None:
         session.white_name, session.black_name = white_name, black_name
-    headers = session.headers if session is not None else game.headers if game is not None else None
-    if headers is not None and not args.follow:
-        for color, override, name in (("White", args.white, white_name),
-                                      ("Black", args.black, black_name)):
-            if override is not None and override.strip() not in {"", "?"}:
-                headers[color] = name
     if not board.is_valid():
         raise SystemExit("The starting position is invalid.")
     engine_path = args.engine or find_stockfish()

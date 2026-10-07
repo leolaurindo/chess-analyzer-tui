@@ -1,15 +1,18 @@
 import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import chess
 import chess.pgn
 
+from chess_analyzer.export import export_analysis, export_directory
 from chess_analyzer.game import Analysis, Candidate
 from chess_analyzer.input import parse_input
 from chess_analyzer.library import load_analysis, save_analysis
-from chess_analyzer.session import load_session, save_session
+from chess_analyzer.session import analysis_to_data, load_session, save_session
 
 
 ANNOTATED_PGN = '''[Event "Study"]
@@ -29,6 +32,64 @@ ANNOTATED_PGN = '''[Event "Study"]
 
 
 class ExportTests(unittest.TestCase):
+    def test_file_exports_round_trip_current_fen_and_full_pgn_without_changing_analysis(self):
+        analysis = Analysis.from_input(*parse_input(ANNOTATED_PGN))
+        analysis.headers["Event"] = "Análise"
+        before = analysis_to_data(analysis)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("chess_analyzer.export.user_data_path", return_value=root):
+                self.assertEqual(export_directory(), root / "exports")
+            for format in ("fen", "pgn"):
+                with self.subTest(format=format):
+                    path = root / "exports" / f"study.{format}"
+                    self.assertEqual(export_analysis(analysis, path, format), path.resolve())
+                    self.assertTrue(path.read_bytes().endswith(b"\n"))
+                    board, game, _, _ = parse_input(path.read_text(encoding="utf-8"))
+                    if format == "fen":
+                        self.assertEqual(board.fen(), analysis.current.board.fen())
+                    else:
+                        self.assertEqual(game.headers["Event"], "Análise")
+                        self.assertEqual(game.variations[0].variations[1].comment, "Sicilian")
+                        self.assertEqual(game.end().board().fen(), analysis.current.board.fen())
+            self.assertEqual(analysis_to_data(analysis), before)
+
+    def test_file_export_refuses_existing_files_and_failed_replacement_is_atomic(self):
+        analysis = Analysis.from_input(chess.Board())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "position.fen"
+            path.write_bytes(b"Keep existing file")
+            with self.assertRaises(FileExistsError):
+                export_analysis(analysis, path, "fen")
+            self.assertEqual(path.read_bytes(), b"Keep existing file")
+            with patch("chess_analyzer.export.os.replace", side_effect=OSError("disk failure")):
+                with self.assertRaisesRegex(OSError, "disk failure"):
+                    export_analysis(analysis, path, "fen", overwrite=True)
+            self.assertEqual(path.read_bytes(), b"Keep existing file")
+            self.assertEqual(list(path.parent.iterdir()), [path])
+            export_analysis(analysis, path, "fen", overwrite=True)
+            self.assertEqual(path.read_text(encoding="utf-8").strip(), chess.STARTING_FEN)
+            invalid = path.parent / "missing" / "invalid"
+            with self.assertRaises(ValueError):
+                export_analysis(analysis, invalid, "json")
+            self.assertFalse(invalid.parent.exists())
+
+    def test_file_export_refuses_a_destination_created_concurrently(self):
+        analysis = Analysis.from_input(chess.Board())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "position.fen"
+            link = os.link
+
+            def competing_write(source, destination):
+                Path(destination).write_bytes(b"Another process wrote this")
+                link(source, destination)
+
+            with patch("chess_analyzer.export.os.link", side_effect=competing_write):
+                with self.assertRaises(FileExistsError):
+                    export_analysis(analysis, path, "fen")
+            self.assertEqual(path.read_bytes(), b"Another process wrote this")
+            self.assertEqual(list(path.parent.iterdir()), [path])
+
     def test_full_tree_exports_comments_mainline_and_only_retained_moves(self):
         analysis = Analysis.from_input(*parse_input(ANNOTATED_PGN))
         anchor = analysis.root.mainline_next
@@ -110,11 +171,13 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(game.comment, "Before the first move")
         self.assertEqual((white, black), ("White", "Black"))
 
-    def test_unoverridden_player_headers_are_not_replaced_by_display_fallbacks(self):
-        analysis = Analysis.from_input(*parse_input('[White "?"]\n[Black " Bob "]\n\n1. e4 *'))
+    def test_export_uses_display_names_without_destroying_original_player_identity(self):
+        analysis = Analysis.from_input(*parse_input('[White "Alice"]\n[Black "Bob"]\n\n1. e4 *'))
+        analysis.black_name = "My opponent"
         game = chess.pgn.read_game(io.StringIO(analysis.to_pgn()))
-        self.assertEqual(game.headers["White"], "?")
-        self.assertEqual(game.headers["Black"], " Bob ")
+        self.assertEqual(game.headers["White"], "Alice")
+        self.assertEqual(game.headers["Black"], "My opponent")
+        self.assertEqual(analysis.headers["Black"], "Bob")
 
 
 if __name__ == "__main__":

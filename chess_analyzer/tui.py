@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import math
+import re
 from collections.abc import Callable
 
 import chess
 import chess.engine
 import chess.pgn
-import pyperclip
 from rich.style import Style
 from rich.text import Text
 from textual import work
@@ -22,12 +22,21 @@ from textual.widgets import Footer, Header, Input, Static, TextArea
 
 from .browser import GameBrowser
 from .config import Account, save_account
-from .dialogs import (AccountSelectionDialog, AnalysisDialog, CommentEditor, HelpDialog,
-                      ImportDialog, LatestGameDialog, LibraryDialog, SaveAnalysisDialog)
+from .dialogs import (AccountSelectionDialog, AnalysisDialog, CommentEditor,
+                      DeleteAnalysisDialog, ExportDialog, HelpDialog, ImportDialog,
+                      LatestGameDialog, LibraryDialog, SaveAnalysisDialog)
+from .export import export_directory
 from .game import Analysis, Candidate, Node, history_to_san
 from .library import SavedAnalysis, library_path
 from .openings import opening_label
 from .piece_art import PIECE_ART
+
+
+CLOCK_TAG = re.compile(r"\[%clk\s+[^\]]*\]")
+
+
+def comment_text(text: str) -> str:
+    return CLOCK_TAG.sub("", text).strip()
 
 
 def side_label(color: str, name: str) -> str:
@@ -153,8 +162,7 @@ class ChessAnalysisApp(App):
         Binding("down", "select_move(1)", "Choose", show=False, priority=True),
         Binding("escape", "return_to_game", "Original game", show=False, priority=True),
         Binding("f", "flip_board", "Flip", show=False),
-        Binding("ctrl+f", "copy_fen", "Copy FEN", show=False),
-        Binding("ctrl+p", "copy_pgn", "Copy PGN", show=False),
+        Binding("e", "export_analysis", "Export", show=False),
         Binding("r", "reanalyze", "Re-analyze", show=False),
         Binding("c", "edit_comment", "Comment", show=False),
         Binding("s", "save_analysis", "Save", show=False),
@@ -165,7 +173,9 @@ class ChessAnalysisApp(App):
         ("i", "import_analysis", "Import"),
         Binding("h", "home_plain", "Home", show=False, priority=True),
         Binding("g", "preserved_game", "Game", show=False),
-        Binding("ctrl+h", "home", "Home", show=False, priority=True),
+        Binding("f2", "home", "Home", show=False, priority=True),
+        Binding("pageup", "game_position(0)", "Game start", show=False, priority=True),
+        Binding("pagedown", "game_position(-1)", "Game end", show=False, priority=True),
         Binding("question_mark", "help_plain", "Help", key_display="?", priority=True),
         Binding("f1", "help", "Help", show=False, priority=True),
         Binding("q", "quit_plain", "Quit", show=False, priority=True),
@@ -181,7 +191,8 @@ class ChessAnalysisApp(App):
                  browse_provider: str | None = None, browse_user: str | None = None,
                  open_browser: bool = False, open_latest: bool = False,
                  account_error: str | None = None,
-                 follow_white: str | None = None, follow_black: str | None = None):
+                 follow_white: str | None = None, follow_black: str | None = None,
+                 account: Account | None = None):
         super().__init__()
         self.on_session_change = on_session_change
         self.open_library = open_library
@@ -190,12 +201,14 @@ class ChessAnalysisApp(App):
         self.follow_white, self.follow_black = follow_white, follow_black
         self.browse_provider = browse_provider
         self.browse_user = browse_user
+        self.account = account
         self.engine = engine
         self.think_time = think_time
         self.multipv = multipv
         self.ascii_pieces = ascii_pieces
         self.engine_name = engine_name
         self.analysis = Analysis.from_input(board, game, white_name, black_name)
+        self.orient_analysis(self.analysis)
         self.home_analysis = (
             self.analysis if game is None and board.fen() == chess.STARTING_FEN
             and (white_name, black_name) == ("White", "Black")
@@ -345,13 +358,12 @@ class ChessAnalysisApp(App):
                          else "Engine is thinking…", style="dim")
         self.query_one("#candidates", Static).update(lines)
         comments = Text()
-        if node.starting_comment:
-            comments.append(node.starting_comment + "\n\n")
-        if node.comment:
-            comments.append(node.comment)
+        if text := comment_text(node.starting_comment):
+            comments.append(text + "\n\n")
+        comments.append(comment_text(node.comment))
         selected_child = node.children.get(selected_move)
-        if selected_child and selected_child.starting_comment:
-            comments.append("\n\nVariation: " + selected_child.starting_comment)
+        if selected_child and (text := comment_text(selected_child.starting_comment)):
+            comments.append("\n\nVariation: " + text)
         comment_panel = self.query_one("#comments", Static)
         comment_panel.display = bool(comments.plain)
         comment_panel.update(comments)
@@ -471,10 +483,9 @@ class ChessAnalysisApp(App):
 
     def action_game_position(self, index: int) -> None:
         node = self.analysis.root
-        for _ in range(index):
-            if node.mainline_next is None:
-                break
+        while node.mainline_next is not None and index != 0:
             node = node.mainline_next
+            index -= 1
         self.analysis.return_position = None
         node.selected = 0
         self.show_position(node)
@@ -508,25 +519,19 @@ class ChessAnalysisApp(App):
         self.refresh_board()
         self.save_session()
 
-    def copy_to_clipboard(self, text: str, label: str) -> None:
-        try:
-            pyperclip.copy(text)
-        except (pyperclip.PyperclipException, OSError) as exc:
-            self.notify(f"Could not copy {label}: {exc}", severity="error")
-        else:
-            self.notify(f"Copied {label} to clipboard")
-
-    def action_copy_fen(self) -> None:
-        self.copy_to_clipboard(self.analysis.current.board.fen(), "FEN")
-
-    def action_copy_pgn(self) -> None:
-        self.copy_to_clipboard(self.analysis.to_pgn(), "PGN")
+    def action_export_analysis(self) -> None:
+        self.push_screen(ExportDialog(self.analysis, export_directory()))
 
     def action_reanalyze(self) -> None:
         self.analysis.current.analyzed = False
         self.analyze_requested_position()
 
+    def orient_analysis(self, analysis: Analysis) -> None:
+        if self.account is not None:
+            analysis.orient_for(self.account.provider, self.account.username)
+
     def replace_analysis(self, analysis: Analysis, title: str = "") -> None:
+        self.orient_analysis(analysis)
         if self.analysis is self.home_analysis:
             self.home_title = self.saved_title
         self.analysis = analysis
@@ -540,11 +545,11 @@ class ChessAnalysisApp(App):
 
         def edited(comment: str | None) -> None:
             if comment is not None:
-                node.comment = comment
+                node.comment = " ".join([comment.strip(), *CLOCK_TAG.findall(node.comment)]).strip()
                 self.save_session()
             self.refresh_ui()
 
-        self.push_screen(CommentEditor(node.comment), edited)
+        self.push_screen(CommentEditor(comment_text(node.comment)), edited)
 
     def action_save_analysis(self) -> None:
         title = self.saved_title or f"{self.analysis.white_name} vs {self.analysis.black_name}"
@@ -595,7 +600,10 @@ class ChessAnalysisApp(App):
                 self.notify(f"Could not save default account: {exc} · account unchanged",
                             severity="error")
                 return
+            self.account = saved
             self.browse_provider, self.browse_user = saved.provider, saved.username
+            self.orient_analysis(self.analysis)
+            self.refresh_ui()
             self.action_browse_games()
 
     def action_import_analysis(self) -> None:
@@ -646,7 +654,7 @@ class ChessAnalysisApp(App):
             return
         screen = self.screen
         navigation = (
-            "Navigation\nCtrl+H: Home everywhere\nh: Home outside text fields"
+            "Navigation\nF2: Home everywhere\nh: Home outside text fields"
             "\nF1: help everywhere\n?: help outside text fields"
             "\nCtrl+Q: quit everywhere\nq: quit outside text fields"
             "\nEsc: cancel / close help"
@@ -661,11 +669,22 @@ class ChessAnalysisApp(App):
                        "\nChess.com public archives can lag.")
         elif isinstance(screen, LibraryDialog):
             title = "Library help"
-            details = "\n\nLibrary\n↑/↓: choose analysis\nEnter: open selected analysis"
+            details = "\n\nLibrary\n↑/↓: choose analysis\nEnter: open selected analysis\nDelete: remove selected save (confirmation required)"
+        elif isinstance(screen, ExportDialog):
+            title = "Export help"
+            details = ("\n\nFile export\nChoose FEN position or full analysis PGN."
+                       "\nType a full path or a file name in the default folder."
+                       "\nExport / Enter: confirm writing\nExisting files need explicit replacement permission."
+                       "\nThe saved path stays visible until Done / Close."
+                       "\nEsc cancels before writing, or closes after export.")
+        elif isinstance(screen, DeleteAnalysisDialog):
+            title = "Delete help"
+            details = "\n\nDelete saved analysis\nClick Delete to confirm; Esc cancels.\nThe current game and continue snapshot are untouched."
         elif isinstance(screen, AccountSelectionDialog):
             title = "Account help"
             details = (
-                "\n\nBrowse\nTab: change field\n↑/↓: choose provider"
+                "\n\nBrowse\nTab: change field"
+                "\n↑/↓: change provider, even while typing username"
                 "\nEnter in username: save default and browse\nPublic username: letters, numbers, _ or -"
             )
         elif isinstance(screen, (CommentEditor, SaveAnalysisDialog, ImportDialog)):
@@ -674,6 +693,7 @@ class ChessAnalysisApp(App):
             details = (
                 "\n\nEditing / import\nTab: change field\nCtrl+S: apply / import"
                 "\nType ?, h and q normally in text fields."
+                "\nImported clock tags are hidden and preserved."
             )
             if isinstance(screen, SaveAnalysisDialog):
                 details += "\nEnter in name: save\nReplacement requires the checkbox."
@@ -687,12 +707,14 @@ class ChessAnalysisApp(App):
                 navigation += "\ng: return to preserved game"
             details = (
                 "\n\nAnalysis\n↑/↓: choose move\n→ / Enter: follow · ←: back"
+                "\nPgUp: game start · PgDown: last original position"
+                "\nFor FEN input, both return to the imported FEN."
                 "\nf: flip · r: reanalyze\nc: edit position comment"
             )
             if self.analysis.return_position is not None:
                 details += "\nEsc: return to original game"
             details += ("\n\nImport / export / save\ni: import FEN / PGN / URL"
-                        "\nCtrl+F: copy current FEN\nCtrl+P: copy full analysis PGN"
+                        "\ne: export FEN / PGN to file"
                         "\ns: save named analysis")
         # A covered loader must not dismiss the help screen when its result arrives.
         if isinstance(screen, (ImportDialog, GameBrowser, LatestGameDialog)):

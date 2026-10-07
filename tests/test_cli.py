@@ -32,7 +32,7 @@ class CliTests(unittest.TestCase):
                 self.subTest(flag=flag),
                 patch("sys.argv", ["chess-analyzer", flag]),
                 patch("chess_analyzer.cli.find_stockfish") as find_engine,
-                patch("pyperclip.paste") as paste,
+                patch("chess_analyzer.input.paste_text") as paste,
                 contextlib.redirect_stdout(output),
                 self.assertRaises(SystemExit) as error,
             ):
@@ -58,7 +58,7 @@ class CliTests(unittest.TestCase):
                 with (
                     self.subTest(source=source, contents=contents),
                     patch("sys.argv", ["chess-analyzer", *argv, "--engine", "stockfish"]),
-                    patch("pyperclip.paste", return_value=contents),
+                    patch("chess_analyzer.input.paste_text", return_value=contents),
                     patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run,
                 ):
                     main()
@@ -71,7 +71,7 @@ class CliTests(unittest.TestCase):
     def test_clipboard_is_not_read_without_opt_in(self):
         with (
             patch("sys.argv", ["chess-analyzer", "--engine", "stockfish"]),
-            patch("pyperclip.paste") as paste,
+            patch("chess_analyzer.input.paste_text") as paste,
             patch("chess_analyzer.cli.run_app", new_callable=AsyncMock),
         ):
             main()
@@ -90,7 +90,7 @@ class CliTests(unittest.TestCase):
             with (
                 self.subTest(contents=contents),
                 patch("sys.argv", ["chess-analyzer", "--clip"]),
-                patch("pyperclip.paste", side_effect=[contents]),
+                patch("chess_analyzer.input.paste_text", side_effect=[contents]),
                 patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run,
                 contextlib.redirect_stderr(io.StringIO()),
                 self.assertRaises(SystemExit) as error,
@@ -113,7 +113,7 @@ class CliTests(unittest.TestCase):
             with (
                 self.subTest(sources=sources),
                 patch("sys.argv", ["chess-analyzer", *sources]),
-                patch("pyperclip.paste") as paste,
+                patch("chess_analyzer.input.paste_text") as paste,
                 contextlib.redirect_stderr(io.StringIO()),
                 self.assertRaises(SystemExit) as error,
             ):
@@ -186,7 +186,7 @@ class CliTests(unittest.TestCase):
                 with (self.subTest(source=source),
                       patch("sys.argv", ["chess-analyzer", *source, "--white", "White",
                                          "--black", "New Black", "--engine", "stockfish"]),
-                      patch("pyperclip.paste", return_value='[White "?"]\n[Black "Bob"]\n\n1. e4 *'),
+                      patch("chess_analyzer.input.paste_text", return_value='[White "?"]\n[Black "Bob"]\n\n1. e4 *'),
                       patch("chess_analyzer.cli.session_path", return_value=path),
                       patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run):
                     main()
@@ -211,7 +211,7 @@ class CliTests(unittest.TestCase):
                     self.subTest(flag=flag),
                     patch("sys.argv", ["chess-analyzer", flag]),
                     patch("chess_analyzer.cli.session_path", return_value=path),
-                    patch("pyperclip.paste") as paste,
+                    patch("chess_analyzer.input.paste_text") as paste,
                     self.assertRaises(SystemExit) as error,
                 ):
                     main()

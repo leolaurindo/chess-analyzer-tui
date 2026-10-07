@@ -173,7 +173,7 @@ class FollowUiTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNot(app.analysis, prior)
 
     async def test_cancellation_stops_requests_and_help_keeps_latest_dialog_retryable(self):
-        cases = [("chess.com", "archives", "escape"), ("chess.com", "month", "ctrl+h"),
+        cases = [("chess.com", "archives", "escape"), ("chess.com", "month", "f2"),
                  ("lichess", "filtered", "question_mark"), ("lichess", "listing", "ctrl+q"),
                  ("lichess", "export", "escape")]
         for provider, stage, cancel in cases:
@@ -232,7 +232,7 @@ class FollowUiTests(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(calls, in_flight)
                             self.assertEqual(self.session.read_bytes(), before)
                             self.assertEqual(self.config.read_bytes(), config_before)
-                            if cancel == "ctrl+h":
+                            if cancel == "f2":
                                 self.assertIs(app.preserved_analysis[0], prior)
                                 await pilot.press("g")
                             elif cancel == "question_mark":
@@ -254,7 +254,7 @@ class FollowUiTests(unittest.IsolatedAsyncioTestCase):
         prior.flipped = True
         save_session(prior, self.session)
         before = self.session.read_bytes()
-        save_account(Account("lichess", "Alice"), self.config)
+        save_account(Account("lichess", "Bob"), self.config)
 
         async def run(app):
             self.assertEqual((app.analysis.white_name, app.analysis.black_name), ("Prior", "Game"))
@@ -267,8 +267,14 @@ class FollowUiTests(unittest.IsolatedAsyncioTestCase):
                             "Site": "https://lichess.org/latest01", "Date": "2025.06.01", "Result": "1-0"}
                 for header, value in expected.items():
                     self.assertEqual(exported.headers[header], value)
-                    self.assertEqual(load_session(self.session).headers[header], value)
+                    if header not in {"White", "Black"}:
+                        self.assertEqual(load_session(self.session).headers[header], value)
+                restored = load_session(self.session)
+                self.assertEqual((restored.white_name, restored.black_name), ("White", "Changed Black"))
+                self.assertEqual((restored.headers["White"], restored.headers["Black"]), ("?", "Bob"))
                 self.assertEqual(app.analysis.root.comment, "Introduction")
+                self.assertTrue(app.analysis.flipped)
+                self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · Changed Black")
                 self.assertEqual(app.think_time, 0.05)
 
         for flag in ("-f", "--follow"):

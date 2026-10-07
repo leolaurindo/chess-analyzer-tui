@@ -49,6 +49,10 @@ def load_analysis(path: Path) -> Analysis:
     return analysis_from_data(data.get("analysis"))
 
 
+def delete_analysis(path: Path) -> None:
+    path.unlink()
+
+
 def list_analyses(directory: Path) -> tuple[list[SavedAnalysis], list[str]]:
     entries, warnings = [], []
     if not directory.exists():

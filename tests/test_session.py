@@ -8,6 +8,7 @@ from unittest.mock import patch
 import chess
 
 from chess_analyzer.cli import find_stockfish, main
+from chess_analyzer.config import Account, save_account
 from chess_analyzer.game import Analysis
 from chess_analyzer.session import load_session, save_session
 from chess_analyzer.tui import ChessAnalysisApp
@@ -129,6 +130,7 @@ class SessionTests(unittest.TestCase):
         engine = find_stockfish()
         if engine is None:
             self.skipTest("Stockfish is required for session integration tests")
+        save_account(Account("chess.com", "Supi"), self.config)
         pgn = '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *'
         saved_position = None
 

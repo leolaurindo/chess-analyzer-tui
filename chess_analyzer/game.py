@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from urllib.parse import unquote, urlsplit
 
 import chess
 import chess.pgn
-
-from .input import player_name
 
 
 @dataclass
@@ -78,13 +77,27 @@ class Analysis:
         return cls(root, current, white_name=white_name, black_name=black_name,
                    headers=dict(game.headers) if game is not None else {})
 
+    def orient_for(self, provider: str, username: str) -> None:
+        matches = []
+        for color in ("White", "Black"):
+            identities = [self.headers.get(color, "")]
+            try:
+                url = urlsplit(self.headers.get(color + "Url", ""))
+            except ValueError:
+                url = None
+            prefix = "/member/" if provider == "chess.com" else "/@/"
+            host = "chess.com" if provider == "chess.com" else "lichess.org"
+            if url is not None and url.hostname in {host, "www." + host} and url.path.startswith(prefix):
+                identities.append(unquote(url.path[len(prefix):]).rstrip("/"))
+            matches.append(any(name.strip().casefold() == username.casefold() for name in identities))
+        if matches[0] != matches[1]:
+            self.flipped = matches[1]
+
     def to_pgn(self) -> str:
         game = chess.pgn.Game()
         game.setup(self.root.board)
         game.headers.update(self.headers)
-        for color, name in (("White", self.white_name), ("Black", self.black_name)):
-            if color not in self.headers or name != player_name(self.headers[color], color):
-                game.headers[color] = name
+        game.headers.update(White=self.white_name, Black=self.black_name)
         game.comment = self.root.comment
         pending = [(self.root, game)]
         while pending:

@@ -1,5 +1,4 @@
 import asyncio
-import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +7,6 @@ import xml.etree.ElementTree as ET
 
 import chess
 import chess.engine
-import pyperclip
 from rich.style import Style
 from textual.widgets import Checkbox, Input, TextArea
 
@@ -16,7 +14,7 @@ from chess_analyzer.cli import find_stockfish
 from chess_analyzer.game import Analysis
 from chess_analyzer.input import parse_input
 from chess_analyzer.library import list_analyses, load_analysis
-from chess_analyzer.session import analysis_to_data, load_session, save_session
+from chess_analyzer.session import load_session, save_session
 from chess_analyzer.tui import ChessAnalysisApp
 
 
@@ -197,41 +195,6 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                     app.screen.query_one(TextArea).load_text("")
                     await pilot.press("ctrl+s")
                     self.assertFalse(app.query_one("#comments").display)
-
-    async def test_clipboard_shortcuts_export_without_changing_analysis_and_report_failures(self):
-        board, game, white, black = parse_input('1. e4 {Imported} e5 *')
-        app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=game,
-                               white_name=white, black_name=black)
-        async with app.run_test(size=(40, 24)) as pilot:
-            await wait_for_analysis(app, pilot)
-            await pilot.press("left")
-            await wait_for_analysis(app, pilot)
-            before = analysis_to_data(app.analysis)
-            with patch("pyperclip.copy") as copy, patch.object(app, "notify") as notify:
-                await pilot.press("ctrl+f")
-                copy.assert_called_once_with(
-                    "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
-                notify.assert_called_with("Copied FEN to clipboard")
-                await pilot.press("ctrl+p")
-                exported = chess.pgn.read_game(io.StringIO(copy.call_args.args[0]))
-                self.assertEqual([move.uci() for move in exported.mainline_moves()], ["e2e4", "e7e5"])
-                self.assertEqual(exported.variations[0].comment, "Imported")
-                notify.assert_called_with("Copied PGN to clipboard")
-                self.assertEqual(analysis_to_data(app.analysis), before)
-                for key, error, label in (("ctrl+f", pyperclip.PyperclipException("No backend"), "FEN"),
-                                          ("ctrl+p", OSError("Clipboard busy"), "PGN")):
-                    with self.subTest(error=error):
-                        copy.side_effect = error
-                        await pilot.press(key)
-                        notify.assert_called_with(f"Could not copy {label}: {error}", severity="error")
-                        self.assertEqual(analysis_to_data(app.analysis), before)
-                copy.reset_mock(side_effect=True)
-                await pilot.press("p")
-                copy.assert_not_called()
-                await pilot.press("c", "ctrl+f", "ctrl+p")
-                copy.assert_not_called()
-                self.assertEqual(analysis_to_data(app.analysis), before)
-                await pilot.press("escape")
 
     async def test_opening_label_tracks_navigation_and_imported_variations(self):
         board, game, _, _ = parse_input(

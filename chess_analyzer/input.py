@@ -10,6 +10,7 @@ import chess.pgn
 import pyperclip
 
 
+from .clipboard import paste_text
 from .online import load_url
 
 
@@ -48,7 +49,7 @@ def load_input(text: str | None = None, *, file: str | None = None,
             raise SystemExit(f"Could not read file: {exc}") from exc
     elif clipboard:
         try:
-            text = pyperclip.paste()
+            text = paste_text()
         except (pyperclip.PyperclipException, OSError) as exc:
             raise SystemExit(f"Could not read clipboard: {exc}") from exc
     if text.strip().lower().startswith(("https://", "http://")):
