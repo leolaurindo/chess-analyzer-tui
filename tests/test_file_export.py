@@ -24,7 +24,7 @@ class FileExportDialogTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.configure({"Threads": 1, "Hash": 16})
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.directory = Path(folder.name) / "exports"
+        self.directory = (Path(folder.name) / "exports").resolve()
         location = patch("chess_analyzer.tui.export_directory", return_value=self.directory)
         location.start()
         self.addCleanup(location.stop)
