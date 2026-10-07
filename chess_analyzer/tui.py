@@ -55,21 +55,27 @@ def format_score(score: chess.engine.PovScore) -> str:
 
 
 class EvaluationBar(Widget):
+    white_share = 0.5
+
     def render(self) -> Text:
-        outcome = self.app.analysis.current.board.outcome()
+        node = self.app.analysis.current
+        outcome = node.board.outcome()
         if outcome is not None:
-            white_share = 0.5 if outcome.winner is None else float(outcome.winner)
+            self.white_share = 0.5 if outcome.winner is None else float(outcome.winner)
         else:
-            candidate = next(iter(self.app.analysis.current.candidates), None)
-            score = candidate.score if candidate else "0.00"
-            if score.startswith("M"):
-                white_share = 1.0
-            elif score.startswith("-M"):
-                white_share = 0.0
-            else:
-                white_share = 1 / (1 + math.exp(-float(score) / 1.5)) if score != "?" else 0.5
+            selected = self.app.selected_move()
+            candidate = next((c for c in node.candidates if c.move == selected),
+                             next(iter(node.candidates), None))
+            if candidate is not None:
+                score = candidate.score
+                if score.startswith("M"):
+                    self.white_share = 1.0
+                elif score.startswith("-M"):
+                    self.white_share = 0.0
+                elif score != "?":
+                    self.white_share = 1 / (1 + math.exp(-float(score) / 1.5))
         height = max(1, self.size.height)
-        white_rows = round(height * white_share)
+        white_rows = round(height * self.white_share)
         return Text("\n").join(
             Text("  ", style=f"on {'#f0f0e8' if row < white_rows else '#30343b'}")
             for row in range(height)
@@ -160,7 +166,7 @@ class ChessAnalysisApp(App):
         Binding("enter", "next_position", "Follow", show=False, priority=True),
         Binding("up", "select_move(-1)", "Choose", show=False, priority=True),
         Binding("down", "select_move(1)", "Choose", show=False, priority=True),
-        Binding("escape", "return_to_game", "Original game", show=False, priority=True),
+        Binding("escape", "return_to_game", "Back to game", priority=True),
         Binding("f", "flip_board", "Flip", show=False),
         Binding("e", "export_analysis", "Export", show=False),
         Binding("r", "reanalyze", "Re-analyze", show=False),

@@ -13,7 +13,7 @@ Initialize analysis from FEN or PGN text, files, your clipboard, directly from U
 
 Requires Python 3.11+.
 
-Once published on PyPI, install the `chess-analyzer-tui` package with either tool
+Install the `chess-analyzer-tui` package from PyPI with either tool
 manager. Both install the `chess-analyzer` command (the command name is not a
 separate PyPI package):
 
@@ -308,7 +308,8 @@ position (and subsequent moves) can be matched. Labels work offline.
 
 - **↑/↓** — choose an original move, retained variation, or engine alternative
 - **→/Enter** — follow the selected move; **←** — step back
-- **Esc** — return from an explored line to its game position
+- **Esc** — return from an explored line to its game position; shown as **Back to game**
+  in the command bar only while exploring a variation
 - **f** — flip board; **r** — reanalyze; **q** — quit
 
 Moves, the return link, and any original-game move (or Start) are clickable.
@@ -319,6 +320,9 @@ ones use chess glyphs. Narrow layouts stack the panels; scroll with the mouse
 wheel. PgUp/PgDown navigate the game's boundaries on the analysis screen, and
 scroll within help/dialogs. Blue highlights the selected move, yellow the previous
 move, and red a checked king.
+
+The evaluation bar follows the selected engine alternative's score and keeps its
+last value while Stockfish is thinking; it does not reset to the middle.
 
 ## Opening data credits
 
@@ -338,6 +342,11 @@ The piece artwork and size-adaptive rendering approach are adapted from
 The artwork is used under the MIT License; the full notice is preserved in
 [licenses/chess-tui-MIT.txt](licenses/chess-tui-MIT.txt). The rest of this project
 is released under [MIT](LICENSE).
+
+## Release notes
+
+See [CHANGELOG.md](CHANGELOG.md). Version 0.2.0 requires snapshot v3; older v2
+sessions/library saves must be recreated from their original FEN/PGN.
 
 ## Development
 

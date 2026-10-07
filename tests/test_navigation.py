@@ -55,6 +55,34 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
         for key in keys:
             self.assertLessEqual(key.region.right, 40)
 
+    async def test_return_to_game_command_appears_only_while_exploring_a_variation(self):
+        board, game, _, _ = parse_input("1. e4 e5 *")
+        app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=game)
+        original = app.analysis.current
+        branch = original.child(chess.Move.from_uci("f1c4"))
+        ahead = branch.child(chess.Move.from_uci("g8f6"))
+        for node in (original, branch, ahead):
+            node.analyzed = True
+        async with app.run_test(size=(40, 24)) as pilot:
+            def footer_text():
+                return "".join(str(key.render()) for key in app.screen.query_one(Footer).query("FooterKey"))
+
+            self.assertNotIn("Back to game", footer_text())
+            await pilot.press("down", "right", "right")
+            self.assertIs(app.analysis.current, ahead)
+            self.assertIn("Back to game", footer_text())
+            key = next(key for key in app.screen.query_one(Footer).query("FooterKey")
+                       if "Back to game" in str(key.render()))
+            self.assertTrue(0 <= key.region.x < key.region.right <= 40)
+            await pilot.press("f1")
+            self.assertNotIn("Back to game", footer_text())
+            await pilot.press("escape")
+            self.assertIn("Back to game", footer_text())
+            await pilot.press("escape")
+            self.assertIs(app.analysis.current, original)
+            self.assertNotIn("Back to game", footer_text())
+            self.assertIs(original.children[branch.move_from_parent], branch)
+
     async def test_home_retains_both_trees_without_clobbering_continue(self):
         board, game, white, black = parse_input(
             '[White "Alice"]\n\n1. e4 {Pawn} e5 (1... c5 {Sicilian}) *')
