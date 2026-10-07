@@ -73,7 +73,7 @@ class CliTests(unittest.TestCase):
             (pyperclip.PyperclipException("No clipboard backend"), "Could not read clipboard"),
             ("", "does not contain a FEN position or PGN game"),
             ("not a chess game", "does not contain a valid FEN or PGN game with moves"),
-            ('[Event "No moves"]\n\n*', "does not contain a valid FEN or PGN game with moves"),
+            ("[not a PGN header]\n\n*", "does not contain a valid FEN or PGN game with moves"),
             ("1. e4 e5 2. Bh6 *", "Could not parse PGN"),
             ("8/8/8/8/8/8/8/8 w - - 0 1", "starting position is invalid"),
         ]
@@ -164,6 +164,27 @@ class CliTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
             load.assert_not_called()
             engine.assert_not_called()
+
+    def test_player_overrides_export_on_import_and_continue_even_when_matching_fallback(self):
+        loaded = parse_input('[White "?"]\n[Black "Bob"]\n\n1. e4 *')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            save_session(Analysis.from_input(*loaded), path)
+            for source in (["--clip"], ["--continue"]):
+                with (self.subTest(source=source),
+                      patch("sys.argv", ["chess-analyzer", *source, "--white", "White",
+                                         "--black", "New Black", "--engine", "stockfish"]),
+                      patch("pyperclip.paste", return_value='[White "?"]\n[Black "Bob"]\n\n1. e4 *'),
+                      patch("chess_analyzer.cli.session_path", return_value=path),
+                      patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run):
+                    main()
+                session = run.call_args.kwargs["session"]
+                analysis = session if session is not None else Analysis.from_input(
+                    run.call_args.args[1], run.call_args.args[3], *run.call_args.args[4:])
+                _, game, white, black = parse_input(analysis.to_pgn())
+                self.assertEqual((white, black), ("White", "New Black"))
+                self.assertEqual(game.headers["White"], "White")
+                self.assertEqual(game.headers["Black"], "New Black")
 
     def test_continue_reports_missing_or_corrupt_session(self):
         with tempfile.TemporaryDirectory() as directory:

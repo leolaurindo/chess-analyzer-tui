@@ -162,6 +162,12 @@ def main() -> None:
     black_name = player_name(args.black, pgn_black)
     if session is not None:
         session.white_name, session.black_name = white_name, black_name
+    headers = session.headers if session is not None else game.headers if game is not None else None
+    if headers is not None:
+        for color, override, name in (("White", args.white, white_name),
+                                      ("Black", args.black, black_name)):
+            if override is not None and override.strip() not in {"", "?"}:
+                headers[color] = name
     if not board.is_valid():
         raise SystemExit("The starting position is invalid.")
     engine_path = args.engine or find_stockfish()

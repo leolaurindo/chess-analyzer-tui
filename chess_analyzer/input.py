@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 import chess
@@ -28,7 +29,9 @@ def parse_input(text: str) -> tuple[chess.Board, chess.pgn.Game | None, str, str
         raise ValueError("Input does not contain a FEN position or PGN game.")
     if game.errors:
         raise ValueError(f"Could not parse PGN: {game.errors[0]}")
-    if not game.variations:
+    # python-chess also reads arbitrary prose as an empty game.
+    if (not game.variations and "FEN" not in game.headers
+            and not re.match(r'\[[A-Za-z0-9][A-Za-z0-9_+#=:-]*\s+"[^\r\n]*"\]\s*(?:\n|$)', text)):
         raise ValueError("Input does not contain a valid FEN or PGN game with moves.")
     return (game.board(), game,
             player_name(game.headers.get("White"), "White"),

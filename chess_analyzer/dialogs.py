@@ -1,15 +1,19 @@
 """Local analysis dialogs; persistence stays in library/session."""
+import asyncio
 from pathlib import Path
 
 from rich.text import Text
-from textual import on
+from textual import on, work
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, OptionList, Static, TextArea
+from textual.widgets import Button, Checkbox, Footer, Input, Label, OptionList, Select, Static, TextArea
 
 from .game import Analysis
+from .input import load_input
 from .library import SavedAnalysis, list_analyses, load_analysis, save_analysis
+from .online import validate_username
 
 
 class AnalysisDialog(ModalScreen):
@@ -26,15 +30,20 @@ class AnalysisDialog(ModalScreen):
     AnalysisDialog OptionList { height: 1fr; min-height: 4; max-height: 18; }
     AnalysisDialog TextArea { height: 10; }
     """
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        ("escape", "cancel", "Back"),
+        Binding("f1", "app.help", "Help", key_display="F1", priority=True),
+        Binding("ctrl+h", "app.home", "Home", key_display="Ctrl+H", priority=True),
+    ]
 
     @on(Button.Pressed, "#cancel")
     def action_cancel(self) -> None:
+        self.workers.cancel_node(self)
         self.dismiss(None)
 
 
 class CommentEditor(AnalysisDialog):
-    BINDINGS = [("ctrl+s", "save", "Save")]
+    BINDINGS = [Binding("ctrl+s", "save", "Save", show=False)]
 
     def __init__(self, comment: str):
         super().__init__()
@@ -47,6 +56,7 @@ class CommentEditor(AnalysisDialog):
             with Horizontal():
                 yield Button("Save", id="save", variant="primary")
                 yield Button("Cancel", id="cancel")
+        yield Footer()
 
     def on_mount(self) -> None:
         self.query_one(TextArea).focus()
@@ -57,7 +67,7 @@ class CommentEditor(AnalysisDialog):
 
 
 class SaveAnalysisDialog(AnalysisDialog):
-    BINDINGS = [("ctrl+s", "save", "Save")]
+    BINDINGS = [Binding("ctrl+s", "save", "Save", show=False)]
 
     def __init__(self, analysis: Analysis, title: str, directory: Path):
         super().__init__()
@@ -65,13 +75,14 @@ class SaveAnalysisDialog(AnalysisDialog):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("Save analysis")
+            yield Label("Save analysis · Ctrl+S saves")
             yield Input(self.title, placeholder="Analysis name", id="analysis-name")
             yield Checkbox("Replace an existing analysis with this name", id="overwrite")
             yield Static(id="error")
             with Horizontal():
                 yield Button("Save", id="save", variant="primary")
                 yield Button("Cancel", id="cancel")
+        yield Footer()
 
     @on(Button.Pressed, "#save")
     @on(Input.Submitted)
@@ -96,6 +107,7 @@ class LibraryDialog(AnalysisDialog):
             yield Label("Saved analyses · ↑/↓ choose · Enter opens · Esc cancels")
             yield OptionList(id="analyses")
             yield Static(id="error")
+        yield Footer()
 
     def on_mount(self) -> None:
         try:
@@ -121,3 +133,104 @@ class LibraryDialog(AnalysisDialog):
             self.query_one("#error", Static).update(Text(f"Could not open analysis: {exc}"))
         else:
             self.dismiss((entry.title, analysis))
+
+
+class AccountSelectionDialog(AnalysisDialog):
+    """Return a validated (provider, username) without storing configuration."""
+
+    def __init__(self, provider: str | None = None, username: str | None = None):
+        super().__init__()
+        self.provider, self.username = provider, username
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Browse a public account")
+            yield Select([("Chess.com", "chess.com"), ("Lichess", "lichess")],
+                         value=self.provider or "chess.com", allow_blank=False, id="provider")
+            yield Input(self.username or "", placeholder="Public username", id="username")
+            yield Static(id="error")
+            with Horizontal():
+                yield Button("Browse", id="browse", variant="primary")
+                yield Button("Cancel", id="cancel")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one(Input).focus()
+
+    @on(Button.Pressed, "#browse")
+    @on(Input.Submitted)
+    def select_account(self) -> None:
+        try:
+            username = validate_username(self.query_one(Input).value)
+        except ValueError as exc:
+            self.query_one("#error", Static).update(Text(str(exc)))
+        else:
+            self.dismiss((str(self.query_one(Select).value), username))
+
+
+class ImportDialog(AnalysisDialog):
+    BINDINGS = [Binding("ctrl+s", "load", "Import", show=False)]
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Import FEN, PGN or HTTPS URL · Ctrl+S loads")
+            yield TextArea(id="import-text")
+            yield Static(id="error")
+            with Horizontal():
+                yield Button("Import", id="load", variant="primary")
+                yield Button("Cancel", id="cancel")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one(TextArea).focus()
+
+    @on(Button.Pressed, "#load")
+    def action_load(self) -> None:
+        text = self.query_one(TextArea).text.strip()
+        if not text:
+            self.query_one("#error", Static).update("Enter FEN, PGN or an HTTPS URL.")
+            return
+        if not self.query_one("#load", Button).disabled:
+            self.load_analysis(text)
+
+    def pause_for_help(self) -> None:
+        self.workers.cancel_node(self)
+        if self.query_one("#load", Button).disabled:
+            self.query_one("#load", Button).disabled = False
+            self.query_one(TextArea).disabled = False
+            self.query_one("#error", Static).update("Download canceled · Ctrl+S retries")
+
+    @work(group="import", exclusive=True)
+    async def load_analysis(self, text: str) -> None:
+        self.query_one("#load", Button).disabled = True
+        self.query_one(TextArea).disabled = True
+        self.query_one("#error", Static).update("Loading… · Esc cancels")
+        try:
+            parsed = await asyncio.to_thread(load_input, text)
+            analysis = Analysis.from_input(*parsed)
+        except (SystemExit, OSError, ValueError, UnicodeError) as exc:
+            self.query_one("#error", Static).update(Text(str(exc)))
+            self.query_one("#load", Button).disabled = False
+            self.query_one(TextArea).disabled = False
+            self.query_one(TextArea).focus()
+        else:
+            self.dismiss(("", analysis))
+
+
+class HelpDialog(AnalysisDialog):
+    DEFAULT_CSS = """
+    HelpDialog > Vertical { width: 95%; height: 90%; padding: 0 1; }
+    HelpDialog VerticalScroll { height: 1fr; }
+    """
+
+    def __init__(self, title: str, text: str):
+        super().__init__()
+        self.title, self.text = title, text
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(Text(self.title, style="bold"))
+            with VerticalScroll():
+                yield Static(Text(self.text))
+            yield Button("Close", id="cancel")
+        yield Footer()
