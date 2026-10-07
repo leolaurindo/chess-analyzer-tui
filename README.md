@@ -179,17 +179,22 @@ network request. Explicit inputs and startup library/browser options still open
 what you requested.
 
 - **h** goes Home outside text fields; **Ctrl+H** works on every screen, including
-  dialogs. It cancels pending edits/downloads without applying them.
+  dialogs. It always shows the initial position, retaining the scratch tree,
+  and cancels pending edits/downloads without applying them.
 - **g** on Home returns to the preserved game with its exact position, comments,
   branches, and orientation. Home's own analysis is retained separately. While
   a game is preserved, Home edits/navigation do not replace its `--continue`
   snapshot. Opening another game replaces the preserved game.
-- **b** opens the online browser; **l** the library; **i** imports pasted FEN,
-  PGN, or an HTTPS URL. **Ctrl+S** imports; **Esc** cancels. Downloads run off the
+- **b** opens the current account’s browser; **u** chooses or changes the provider
+  and public username, even when already configured. **l** opens the library;
+  **i** imports pasted FEN, PGN, or an HTTPS URL. **Ctrl+S** imports; **Esc**
+  cancels. Downloads run off the
   UI thread, using the same bounded URL loader as CLI input.
 - **?** shows contextual help outside text fields; **F1** works everywhere.
-  Opening help cancels pending dialogs without applying their contents; Esc
-  closes help. Help scrolls on small terminals.
+  Help is an overlay: Esc or repeated F1/`?` closes only help and returns to the
+  underlying dialog with unsubmitted fields intact. Active import/browser
+  downloads are canceled without closing their dialog; Ctrl+S (import) or
+  **r** (browser) retries after closing help. Help scrolls on small terminals.
 - **q** quits outside text fields; **Ctrl+Q** quits everywhere, canceling pending
   dialogs. Plain `h`, `q`, and `?` remain typeable in inputs and text areas.
 

@@ -27,7 +27,7 @@ class GameBrowser(AnalysisDialog):
     BINDINGS = [
         Binding("up", "choose(-1)", "Choose", show=False, priority=True),
         Binding("down", "choose(1)", "Choose", show=False, priority=True),
-        Binding("enter", "open_selected", "Open", priority=True),
+        Binding("enter", "open_selected", "Open", key_display="↵", priority=True),
         Binding("left", "page(-1)", "Newer", show=False, priority=True),
         Binding("right", "page(1)", "Older", show=False, priority=True),
         Binding("r", "page(0)", "Reload", show=False),
@@ -67,6 +67,12 @@ class GameBrowser(AnalysisDialog):
         self.query_one("#newer", Button).disabled = busy or self.page_index == 0
         pages = self.months if self.provider == "chess.com" else self.cursors
         self.query_one("#older", Button).disabled = busy or self.page_index + 1 >= len(pages)
+
+    def pause_for_help(self) -> None:
+        self.workers.cancel_node(self)
+        if self.busy:
+            self.set_busy(False)
+            self.query_one("#browser-status", Static).update("Download canceled · r retries")
 
     def action_choose(self, direction: int) -> None:
         if not self.busy and self.games:

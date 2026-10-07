@@ -156,6 +156,7 @@ class ChessAnalysisApp(App):
         Binding("s", "save_analysis", "Save", show=False),
         Binding("l", "open_library", "Library", show=False),
         ("b", "browse_games", "Browse"),
+        Binding("u", "select_account", "Account", show=False),
         ("i", "import_analysis", "Import"),
         Binding("h", "home_plain", "Home", show=False, priority=True),
         Binding("g", "preserved_game", "Game", show=False),
@@ -540,8 +541,11 @@ class ChessAnalysisApp(App):
         if self.browse_provider and self.browse_user:
             self.push_screen(GameBrowser(self.browse_provider, self.browse_user), self.analysis_selected)
         else:
-            self.push_screen(AccountSelectionDialog(self.browse_provider, self.browse_user),
-                             self.account_selected)
+            self.action_select_account()
+
+    def action_select_account(self) -> None:
+        self.push_screen(AccountSelectionDialog(self.browse_provider, self.browse_user),
+                         self.account_selected)
 
     def account_selected(self, account: tuple[str, str] | None) -> None:
         if account is not None:
@@ -566,7 +570,8 @@ class ChessAnalysisApp(App):
             self.preserved_analysis = self.analysis, self.saved_title
             self.analysis, self.saved_title = self.home_analysis, self.home_title
         self.sub_title = self.saved_title or "Home"
-        self.show_position(self.analysis.current, persist=False)
+        self.analysis.return_position = None
+        self.show_position(self.analysis.root, persist=False)
 
     def action_preserved_game(self) -> None:
         if self.analysis is self.home_analysis and self.preserved_analysis is not None:
@@ -588,7 +593,7 @@ class ChessAnalysisApp(App):
 
     async def action_help(self) -> None:
         if isinstance(self.screen, HelpDialog):
-            await self.cancel_dialogs()
+            await self.screen.dismiss(None)
             return
         screen = self.screen
         navigation = (
@@ -622,7 +627,7 @@ class ChessAnalysisApp(App):
                 details += "\nPaste FEN, PGN or HTTPS URL.\nLoading is cancellable."
         else:
             title = "Home help" if self.analysis is self.home_analysis else "Analysis help"
-            navigation += "\nb: online browser · l: library"
+            navigation += "\nb: online browser · l: library\nu: choose / change account"
             if self.analysis is self.home_analysis and self.preserved_analysis is not None:
                 navigation += "\ng: return to preserved game"
             details = (
@@ -632,6 +637,8 @@ class ChessAnalysisApp(App):
             if self.analysis.return_position is not None:
                 details += "\nEsc: return to original game"
             details += "\n\nImport / save\ni: import FEN / PGN / URL\ns: save named analysis"
-        await self.cancel_dialogs()
+        # A covered loader must not dismiss the help screen when its result arrives.
+        if isinstance(screen, (ImportDialog, GameBrowser)):
+            screen.pause_for_help()
         self.push_screen(HelpDialog(title, navigation + details +
-                                   "\n\nOpening help cancels pending dialogs\nwithout applying edits or downloads."))
+                                   "\n\nEsc / F1 / ?: close help only.\nDrafts are preserved. Active downloads\nare canceled; retry after closing help."))

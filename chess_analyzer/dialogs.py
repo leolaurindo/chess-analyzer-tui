@@ -31,9 +31,9 @@ class AnalysisDialog(ModalScreen):
     AnalysisDialog TextArea { height: 10; }
     """
     BINDINGS = [
-        ("escape", "cancel", "Cancel"),
-        Binding("f1", "app.help", "Help", priority=True),
-        Binding("ctrl+h", "app.home", "Home", show=False, priority=True),
+        ("escape", "cancel", "Back"),
+        Binding("f1", "app.help", "Help", key_display="F1", priority=True),
+        Binding("ctrl+h", "app.home", "Home", key_display="Ctrl+H", priority=True),
     ]
 
     @on(Button.Pressed, "#cancel")
@@ -43,7 +43,7 @@ class AnalysisDialog(ModalScreen):
 
 
 class CommentEditor(AnalysisDialog):
-    BINDINGS = [("ctrl+s", "save", "Save")]
+    BINDINGS = [Binding("ctrl+s", "save", "Save", show=False)]
 
     def __init__(self, comment: str):
         super().__init__()
@@ -67,7 +67,7 @@ class CommentEditor(AnalysisDialog):
 
 
 class SaveAnalysisDialog(AnalysisDialog):
-    BINDINGS = [("ctrl+s", "save", "Save")]
+    BINDINGS = [Binding("ctrl+s", "save", "Save", show=False)]
 
     def __init__(self, analysis: Analysis, title: str, directory: Path):
         super().__init__()
@@ -75,7 +75,7 @@ class SaveAnalysisDialog(AnalysisDialog):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("Save analysis")
+            yield Label("Save analysis · Ctrl+S saves")
             yield Input(self.title, placeholder="Analysis name", id="analysis-name")
             yield Checkbox("Replace an existing analysis with this name", id="overwrite")
             yield Static(id="error")
@@ -169,7 +169,7 @@ class AccountSelectionDialog(AnalysisDialog):
 
 
 class ImportDialog(AnalysisDialog):
-    BINDINGS = [("ctrl+s", "load", "Import")]
+    BINDINGS = [Binding("ctrl+s", "load", "Import", show=False)]
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -192,6 +192,13 @@ class ImportDialog(AnalysisDialog):
             return
         if not self.query_one("#load", Button).disabled:
             self.load_analysis(text)
+
+    def pause_for_help(self) -> None:
+        self.workers.cancel_node(self)
+        if self.query_one("#load", Button).disabled:
+            self.query_one("#load", Button).disabled = False
+            self.query_one(TextArea).disabled = False
+            self.query_one("#error", Static).update("Download canceled · Ctrl+S retries")
 
     @work(group="import", exclusive=True)
     async def load_analysis(self, text: str) -> None:
