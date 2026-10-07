@@ -19,7 +19,7 @@ separate PyPI package):
 
 ```sh
 uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
-chess-analyzer # opens a new game
+chess-analyzer # Home: analyze the initial position
 chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
 chess-analyzer https://lichess.org/nrmBGiQF
 chess-analyzer https://lichess.org/study/r072zv4F/R33cxdop
@@ -136,7 +136,10 @@ chess-analyzer --browse chess.com --user leolaurindo
 chess-analyzer --browse lichess --user leolaurindo
 ```
 
-Games load automatically; there are no provider, username, or month selectors.
+Press **b** from analysis or Home to browse. Without an account selected, choose
+Chess.com or Lichess and enter a public username; Enter or Browse opens its games.
+The selection is retained for this app session only. CLI accounts open directly.
+Games load automatically; months/pages are selected with the paging keys.
 No login, token storage, or play-token reuse is needed.
 
 - **↑/↓** chooses a game; **Enter** opens it for analysis, preserving its PGN
@@ -146,7 +149,7 @@ No login, token storage, or play-token reuse is needed.
 - **r** reloads the current month/page, including after a loading error.
 - **Esc** cancels without changing your analysis, including during a request.
 - After opening a game, **b** returns to this provider/username’s browser. This
-  shortcut is available only when the app was started with `--browse`.
+  shortcut also works after selecting an account in the app.
 - Press **s** during analysis if you want to keep a named local copy.
 
 Requests are sequential, run off the UI thread, and have time/size limits. Rate
@@ -187,6 +190,35 @@ Stockfish is found on PATH or alongside the application package as `stockfish`
 `--engine /path/to/lc0`. Configure engine-specific files and settings, such as
 Lc0's network weights and backend, separately. The app applies thread, hash,
 and multiple-line settings only when the engine supports them.
+
+## Home and help
+
+Plain startup opens **Home**, the initial-position chess analysis, without any
+network request. Explicit inputs and startup library/browser options still open
+what you requested.
+
+- **h** goes Home outside text fields; **Ctrl+H** works on every screen, including
+  dialogs. It always shows the initial position, retaining the scratch tree,
+  and cancels pending edits/downloads without applying them.
+- **g** on Home returns to the preserved game with its exact position, comments,
+  branches, and orientation. Home's own analysis is retained separately. While
+  a game is preserved, Home edits/navigation do not replace its `--continue`
+  snapshot. Opening another game replaces the preserved game.
+- **b** opens the current account’s browser; **u** chooses or changes the provider
+  and public username, even when already configured. **l** opens the library;
+  **i** imports pasted FEN, PGN, or an HTTPS URL. **Ctrl+S** imports; **Esc**
+  cancels. Downloads run off the
+  UI thread, using the same bounded URL loader as CLI input.
+- **?** shows contextual help outside text fields; **F1** works everywhere.
+  Help is an overlay: Esc or repeated F1/`?` closes only help and returns to the
+  underlying dialog with unsubmitted fields intact. Active import/browser
+  downloads are canceled without closing their dialog; Ctrl+S (import) or
+  **r** (browser) retries after closing help. Help scrolls on small terminals.
+- **q** quits outside text fields; **Ctrl+Q** quits everywhere, canceling pending
+  dialogs. Plain `h`, `q`, and `?` remain typeable in inputs and text areas.
+
+Only help, Home, and quit are global. Analysis commands do not leak into dialogs.
+**Ctrl+F** and **Ctrl+P** are reserved for clipboard export.
 
 ## Navigation
 

@@ -1,4 +1,4 @@
-"""Keyboard-first game selection for a provider and username chosen on the CLI."""
+"""Keyboard-first game selection for a provider and username chosen in the app or on the CLI."""
 import asyncio
 
 from rich.text import Text
@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.worker import get_current_worker
-from textual.widgets import Button, Label, OptionList, Static
+from textual.widgets import Button, Footer, Label, OptionList, Static
 
 from .dialogs import AnalysisDialog
 from .game import Analysis
@@ -25,12 +25,12 @@ class GameBrowser(AnalysisDialog):
     GameBrowser OptionList { height: 1fr; min-height: 2; max-height: 100%; }
     """
     BINDINGS = [
-        Binding("up", "choose(-1)", "Choose", priority=True),
-        Binding("down", "choose(1)", "Choose", priority=True),
-        Binding("enter", "open_selected", "Open", priority=True),
-        Binding("left", "page(-1)", "Newer", priority=True),
-        Binding("right", "page(1)", "Older", priority=True),
-        ("r", "page(0)", "Reload"),
+        Binding("up", "choose(-1)", "Choose", show=False, priority=True),
+        Binding("down", "choose(1)", "Choose", show=False, priority=True),
+        Binding("enter", "open_selected", "Open", key_display="↵", priority=True),
+        Binding("left", "page(-1)", "Newer", show=False, priority=True),
+        Binding("right", "page(1)", "Older", show=False, priority=True),
+        Binding("r", "page(0)", "Reload", show=False),
     ]
 
     def __init__(self, provider: str, username: str):
@@ -55,6 +55,7 @@ class GameBrowser(AnalysisDialog):
                 yield Button("Reload", id="reload")
             yield Static("Loading…", id="browser-status")
             yield OptionList(id="games")
+        yield Footer()
 
     def on_mount(self) -> None:
         self.load_games()
@@ -66,6 +67,12 @@ class GameBrowser(AnalysisDialog):
         self.query_one("#newer", Button).disabled = busy or self.page_index == 0
         pages = self.months if self.provider == "chess.com" else self.cursors
         self.query_one("#older", Button).disabled = busy or self.page_index + 1 >= len(pages)
+
+    def pause_for_help(self) -> None:
+        self.workers.cancel_node(self)
+        if self.busy:
+            self.set_busy(False)
+            self.query_one("#browser-status", Static).update("Download canceled · r retries")
 
     def action_choose(self, direction: int) -> None:
         if not self.busy and self.games:
