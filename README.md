@@ -19,7 +19,7 @@ separate PyPI package):
 
 ```sh
 uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
-chess-analyzer # opens a new game
+chess-analyzer # Home: analyze the initial position
 chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
 chess-analyzer https://lichess.org/nrmBGiQF
 chess-analyzer https://lichess.org/study/r072zv4F/R33cxdop
@@ -29,6 +29,7 @@ chess-analyzer --file position.fen
 chess-analyzer --clip
 chess-analyzer --continue          # or: chess-analyzer -c
 chess-analyzer --library           # choose a saved analysis
+chess-analyzer --follow            # or -f; first save an account with u in the app
 chess-analyzer --browse chess.com --user leolaurindo
 chess-analyzer --browse lichess --user leolaurindo
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
@@ -58,9 +59,10 @@ Options:
 - `--clip` — load FEN or PGN from the clipboard
 - `--continue` / `-c` — restore the last analysis session
 - `--library` — interactively reopen a named local analysis
+- `--follow` / `-f` — load the default account’s latest available completed standard game
 - `--browse PROVIDER --user NAME` — browse public games; provider is `chess.com` or `lichess`
 - `--ascii` — use ASCII pieces
-- `--time 0.5` — set analysis time
+- `--time 0.5` / `-t 0.5` — set analysis time
 - `--lines 3` — show multiple lines
 - `--threads 2` — set engine threads, if supported
 - `--hash 256` — set engine hash size, if supported
@@ -72,11 +74,26 @@ On Linux, install `wl-clipboard` for Wayland, or `xclip` / `xsel` for X11;
 a graphical session is required. macOS and Windows use their built-in clipboard
 support.
 
+## Clipboard export
+
+- **Ctrl+F** copies the current displayed position as FEN.
+- **Ctrl+P** copies the full analysis as PGN: the original mainline first, imported
+  and explored variations, position comments, and variation starting comments.
+  Engine suggestions are included only after you follow them.
+
+Original PGN headers (including Result, Date, Event, and Site) survive sessions
+and named saves. `--white` / `--black` overrides are reflected in exported PGN.
+Nonstandard starting positions include SetUp/FEN headers so they reopen correctly,
+including analyses with no moves yet.
+Clipboard failures are shown without changing the analysis. These shortcuts are
+available on the analysis screen, not inside dialogs. Clipboard export uses the
+same platform support described above; there is no file-export dialog.
+
 ## Continue an analysis
 
 Run `chess-analyzer --continue` (or `-c`) to restore the last game, explored
-branches, imported PGN comments and side variations, current position, player names,
-and board orientation. Engine analysis
+branches, original PGN headers, imported comments and side variations, current
+position, player names, and board orientation. Engine analysis
 is recalculated using the current command-line settings.
 
 The session saves automatically as you navigate or flip the board. Starting a
@@ -89,14 +106,18 @@ stored locally:
 
 `--continue` cannot be combined with text, `--file`, or `--clip`.
 
+**Breaking save-format change:** Sessions and named library saves now use snapshot
+version 3 with required PGN headers. Older version 2 saves are unsupported; there
+is no migration. Reimport the original FEN/PGN and save a new analysis.
+
 ## Local analysis library
 
 - **c** opens the current position’s comment editor; **Ctrl+S** or Save applies
   the edit, and Esc cancels. An empty comment removes it. Imported comments can
   be edited, and explored positions can have their own comments.
 - **s** saves the entire analysis under a name: comments, imported and explored
-  variations, current position, player names, and orientation. Existing names
-  require explicit replacement confirmation. Engine evaluations are recalculated.
+  variations, original PGN headers, current position, player names, and orientation.
+  Existing names require explicit replacement confirmation. Engine evaluations are recalculated.
 - **l** opens the library; choose with ↑/↓ and Enter. Esc leaves the current
   analysis unchanged. You can also start with `chess-analyzer --library`.
 
@@ -117,7 +138,13 @@ chess-analyzer --browse chess.com --user leolaurindo
 chess-analyzer --browse lichess --user leolaurindo
 ```
 
-Games load automatically; there are no provider, username, or month selectors.
+Press **b** from analysis or Home to browse. Without an account selected, choose
+Chess.com or Lichess and enter a public username; Enter or Save & browse saves
+the default and opens its games.
+The selection is saved as your one default account. **u** changes it, with the
+current values prefilled. CLI accounts open directly but do not change the saved
+default merely by browsing.
+Games load automatically; months/pages are selected with the paging keys.
 No login, token storage, or play-token reuse is needed.
 
 - **↑/↓** chooses a game; **Enter** opens it for analysis, preserving its PGN
@@ -127,7 +154,7 @@ No login, token storage, or play-token reuse is needed.
 - **r** reloads the current month/page, including after a loading error.
 - **Esc** cancels without changing your analysis, including during a request.
 - After opening a game, **b** returns to this provider/username’s browser. This
-  shortcut is available only when the app was started with `--browse`.
+  shortcut also works after selecting an account in the app.
 - Press **s** during analysis if you want to keep a named local copy.
 
 Requests are sequential, run off the UI thread, and have time/size limits. Rate
@@ -135,12 +162,49 @@ limits are shown without automatic retries; wait at least a minute before retryi
 Canceling discards a pending result; the underlying HTTP request can run until its
 timeout. Starting the browser automatically requests the latest games.
 
-`--browse` and `--library` restore the last session behind their menus when one
+`--browse`, `--library`, and `--follow` restore the last session behind their dialogs when one
 exists, so canceling does not replace your continue snapshot with a new game.
 These startup menus cannot be combined with another input source.
 
 Provider references: [Chess.com Published Data API](https://support.chess.com/en/articles/9650547-published-data-api)
 and [Lichess game export API](https://lichess.org/api#tag/Games/operation/apiGamesUser).
+
+## Latest available game
+
+1. Run `chess-analyzer`, press **u**, choose Chess.com or Lichess, and enter a
+   public username. Enter or **Save & browse** persists that single default.
+2. Run `chess-analyzer -f` / `--follow`, or press **Ctrl+L** from Home/analysis,
+   to load its latest available completed standard-chess game at the final position.
+   **b** browses that account's other games; **u** changes the default.
+
+Plain startup never fetches online games, even with a saved account. Follow is
+one explicit, one-time fetch—not polling or live monitoring. It cannot be
+combined with text, `--file`, `--clip`, `--continue`, `--library`, or `--browse`.
+`-t` remains engine thinking time. `--white` / `--black` also override the
+follow-loaded game's labels and exported PGN headers.
+
+Missing follow configuration reports how to set it up before starting the engine.
+Malformed configuration is reported; ordinary startup still lets you repair it
+with **u**. Only a successful latest-game load replaces the analysis/session.
+Loading, empty-account, and error states remain in a cancellable dialog; **r**
+retries explicitly. **Esc**, Home, or quit cancel. Help cancels the download but
+keeps the dialog retryable underneath. Cancellation discards the result and stops
+further archive/page/export requests after the current bounded HTTP request finishes.
+There is no authentication, token storage, or automatic retry.
+
+Chess.com searches archive months newest first, falling back to older archives
+when no completed standard games are available. Public archives can lag, so the
+result is described as **latest available**. Lichess traverses filtered empty
+pages using its API's newest-created ordering.
+
+The account is stored atomically as provider/username JSON in `config.json`,
+separately from analysis snapshots:
+
+- Linux: `$XDG_CONFIG_HOME/chess-analyzer`, or `~/.config/chess-analyzer`
+- macOS: `~/Library/Application Support/chess-analyzer`
+- Windows: `%LOCALAPPDATA%\chess-analyzer`
+
+A failed account save is shown and leaves the previous account/config unchanged.
 
 ## Stockfish
 
@@ -168,6 +232,36 @@ Stockfish is found on PATH or alongside the application package as `stockfish`
 `--engine /path/to/lc0`. Configure engine-specific files and settings, such as
 Lc0's network weights and backend, separately. The app applies thread, hash,
 and multiple-line settings only when the engine supports them.
+
+## Home and help
+
+Plain startup opens **Home**, the initial-position chess analysis, without any
+network request. Explicit inputs and startup library/browser options still open
+what you requested.
+
+- **h** goes Home outside text fields; **Ctrl+H** works on every screen, including
+  dialogs. It always shows the initial position, retaining the scratch tree,
+  and cancels pending edits/downloads without applying them.
+- **g** on Home returns to the preserved game with its exact position, comments,
+  branches, and orientation. Home's own analysis is retained separately. While
+  a game is preserved, Home edits/navigation do not replace its `--continue`
+  snapshot. Opening another game replaces the preserved game.
+- **b** opens the current account’s browser; **u** chooses or changes the provider
+  and public username, even when already configured. **Ctrl+L** loads the latest
+  available completed game. **l** opens the library;
+  **i** imports pasted FEN, PGN, or an HTTPS URL. **Ctrl+S** imports; **Esc**
+  cancels. Downloads run off the UI thread, using the same bounded URL loader
+  as CLI input.
+- **?** shows contextual help outside text fields; **F1** works everywhere.
+  Help is an overlay: Esc or repeated F1/`?` closes only help and returns to the
+  underlying dialog with unsubmitted fields intact. Active import/browser/latest
+  downloads are canceled without closing their dialog; Ctrl+S (import) or
+  **r** (browser/latest) retries after closing help. Help scrolls on small terminals.
+- **q** quits outside text fields; **Ctrl+Q** quits everywhere, canceling pending
+  dialogs. Plain `h`, `q`, and `?` remain typeable in inputs and text areas.
+
+Only help, Home, and quit are global. Analysis commands do not leak into dialogs.
+**Ctrl+F** copies the current FEN; **Ctrl+P** copies the full analysis PGN.
 
 ## Navigation
 
@@ -218,7 +312,8 @@ is released under [MIT](LICENSE).
 ## Development
 
 Application modules live in `chess_analyzer/`: `cli.py`, `tui.py`, `input.py`,
-`game.py`, `session.py`, `library.py`, `online.py`, `browser.py`, and `dialogs.py`.
+`game.py`, `session.py`, `library.py`, `online.py`, `browser.py`, `follow.py`,
+`config.py`, and `dialogs.py`.
 Piece artwork and the bundled opening dataset are also inside this package.
 Run from the checkout with `uv run chess-analyzer` or
 `uv run python -m chess_analyzer.cli`.

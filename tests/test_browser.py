@@ -45,7 +45,7 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
             listed = games if provider == "chess.com" else [replace(game, pgn=None) for game in games]
             recent = [replace(listed[0], id="recent01")]
             app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3,
-                                   browse_provider=provider, browse_user="Alice")
+                                   browse_provider=provider, browse_user="Alice", open_browser=True)
             with (self.subTest(provider=provider),
                   patch("chess_analyzer.browser.chesscom_months", return_value=["2024-01", "2023-12"]),
                   patch("chess_analyzer.browser.chesscom_games", side_effect=lambda user, month:
@@ -100,7 +100,7 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
             return []
 
         app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3,
-                               browse_provider="chess.com", browse_user="Alice")
+                               browse_provider="chess.com", browse_user="Alice", open_browser=True)
         with patch("chess_analyzer.browser.chesscom_months", side_effect=ValueError("Rate limited")):
             async with app.run_test() as pilot:
                 previous = app.analysis

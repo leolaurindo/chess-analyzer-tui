@@ -10,12 +10,21 @@ import chess
 import pyperclip
 
 from chess_analyzer.cli import main
+from chess_analyzer.config import Account, save_account
 from chess_analyzer.game import Analysis
 from chess_analyzer.input import parse_input
 from chess_analyzer.session import save_session
 
 
 class CliTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.config = Path(directory.name) / "config.json"
+        config = patch("chess_analyzer.config.user_config_path", return_value=self.config.parent)
+        config.start()
+        self.addCleanup(config.stop)
+
     def test_version_aliases_print_version_without_starting_analysis(self):
         for flag in ("--version", "-v"):
             output = io.StringIO()
@@ -73,7 +82,7 @@ class CliTests(unittest.TestCase):
             (pyperclip.PyperclipException("No clipboard backend"), "Could not read clipboard"),
             ("", "does not contain a FEN position or PGN game"),
             ("not a chess game", "does not contain a valid FEN or PGN game with moves"),
-            ('[Event "No moves"]\n\n*', "does not contain a valid FEN or PGN game with moves"),
+            ("[not a PGN header]\n\n*", "does not contain a valid FEN or PGN game with moves"),
             ("1. e4 e5 2. Bh6 *", "Could not parse PGN"),
             ("8/8/8/8/8/8/8/8 w - - 0 1", "starting position is invalid"),
         ]
@@ -97,7 +106,10 @@ class CliTests(unittest.TestCase):
                         ["--library", "--clip"], ["--library", "--continue"],
                         ["--browse", "lichess", "--user", "Alice", "--library"],
                         ["--browse", "lichess", "--user", "Alice", "--continue"],
-                        ["--browse", "lichess", "--user", "Alice", chess.STARTING_FEN]):
+                        ["--browse", "lichess", "--user", "Alice", chess.STARTING_FEN],
+                        ["--follow", chess.STARTING_FEN], ["-f", "--file", "game.pgn"],
+                        ["--follow", "--clip"], ["-f", "--continue"], ["-f", "--library"],
+                        ["--follow", "--browse", "lichess", "--user", "Alice"]):
             with (
                 self.subTest(sources=sources),
                 patch("sys.argv", ["chess-analyzer", *sources]),
@@ -165,6 +177,27 @@ class CliTests(unittest.TestCase):
             load.assert_not_called()
             engine.assert_not_called()
 
+    def test_player_overrides_export_on_import_and_continue_even_when_matching_fallback(self):
+        loaded = parse_input('[White "?"]\n[Black "Bob"]\n\n1. e4 *')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            save_session(Analysis.from_input(*loaded), path)
+            for source in (["--clip"], ["--continue"]):
+                with (self.subTest(source=source),
+                      patch("sys.argv", ["chess-analyzer", *source, "--white", "White",
+                                         "--black", "New Black", "--engine", "stockfish"]),
+                      patch("pyperclip.paste", return_value='[White "?"]\n[Black "Bob"]\n\n1. e4 *'),
+                      patch("chess_analyzer.cli.session_path", return_value=path),
+                      patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run):
+                    main()
+                session = run.call_args.kwargs["session"]
+                analysis = session if session is not None else Analysis.from_input(
+                    run.call_args.args[1], run.call_args.args[3], *run.call_args.args[4:])
+                _, game, white, black = parse_input(analysis.to_pgn())
+                self.assertEqual((white, black), ("White", "New Black"))
+                self.assertEqual(game.headers["White"], "White")
+                self.assertEqual(game.headers["Black"], "New Black")
+
     def test_continue_reports_missing_or_corrupt_session(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.json"
@@ -186,6 +219,48 @@ class CliTests(unittest.TestCase):
                 paste.assert_not_called()
                 if contents is not None:
                     self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
+    def test_follow_requires_valid_configuration_before_engine_or_input_loading(self):
+        for content, message in ((None, "No default account configured"),
+                                 ("{broken", "Invalid account configuration")):
+            if content is not None:
+                self.config.write_text(content)
+            with (self.subTest(content=content), patch("sys.argv", ["chess-analyzer", "-f"]),
+                  patch("chess_analyzer.cli.find_stockfish") as engine,
+                  patch("chess_analyzer.cli.load_input") as load,
+                  patch("chess_analyzer.online.fetch_text") as fetch,
+                  self.assertRaises(SystemExit) as error):
+                main()
+            self.assertIn(message, str(error.exception))
+            self.assertIn("press u", str(error.exception))
+            engine.assert_not_called()
+            load.assert_not_called()
+            fetch.assert_not_called()
+
+    def test_saved_account_does_not_turn_plain_or_explicit_input_into_online_startup(self):
+        save_account(Account("chess.com", "SavedUser"), self.config)
+        previous = self.config.read_bytes()
+        for source in ([], ["1. e4 e5 *"], ["--browse", "lichess", "--user", "CliUser"]):
+            with (self.subTest(source=source),
+                  patch("sys.argv", ["chess-analyzer", *source, "--engine", "stockfish"]),
+                  patch("chess_analyzer.cli.session_path", return_value=self.config.parent / "session.json"),
+                  patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run,
+                  patch("chess_analyzer.online.fetch_text") as fetch):
+                main()
+            args = run.call_args.args[0]
+            self.assertEqual(args.account, Account("chess.com", "SavedUser"))
+            self.assertFalse(args.follow)
+            self.assertEqual(args.browse, "lichess" if "--browse" in source else None)
+            self.assertEqual(self.config.read_bytes(), previous)
+            fetch.assert_not_called()
+        self.config.write_text("{broken")
+        with (patch("sys.argv", ["chess-analyzer", "1. e4 *", "--engine", "stockfish"]),
+              patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run,
+              patch("chess_analyzer.online.fetch_text") as fetch):
+            main()
+        self.assertIn("Invalid account configuration", run.call_args.args[0].account_error)
+        self.assertIsNotNone(run.call_args.args[3])
+        fetch.assert_not_called()
 
     def test_unreadable_file_reports_an_error(self):
         with tempfile.TemporaryDirectory() as directory:
