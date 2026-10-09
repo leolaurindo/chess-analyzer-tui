@@ -103,22 +103,61 @@ class MoveEntryTests(unittest.IsolatedAsyncioTestCase):
             board_text = app.query_one("#board").render()
             rows = board_text.plain.splitlines(keepends=True)
 
-            def square_background(file, rank):
+            def square_content(file, rank):
                 row_index = next(index for index, row in enumerate(rows) if row.startswith(f"{rank}  "))
                 offset = sum(len(row) for row in rows[:row_index]) + rows[-1].index(file)
-                return board_text.get_style_at_offset(Console(), offset).bgcolor.name
+                return board_text.plain[offset]
 
-            self.assertEqual(square_background("e", 2), "#a16b28")
-            self.assertEqual(square_background("e", 3), "#397a50")
-            self.assertEqual(square_background("e", 4), "#397a50")
-            self.assertNotEqual(square_background("d", 3), "#397a50")
-            self.assertNotEqual(square_background("e", 5), "#397a50")
+            self.assertEqual(square_content("e", 3), "●")
+            self.assertEqual(square_content("e", 4), "●")
+            self.assertNotEqual(square_content("d", 3), "●")
+            self.assertNotEqual(square_content("e", 5), "●")
             await pilot.press("up", "up", "enter")
             self.assertEqual(app.analysis.current.board.peek().uci(), "e2e4")
             self.assertIsNotNone(app.move_entry)
             await pilot.press("down", "enter", "down", "down", "space")
             self.assertEqual(app.analysis.current.board.peek().uci(), "e7e5")
             self.assertIsNotNone(app.move_entry)
+
+    async def test_legal_circles_preserve_capture_art_and_square_backgrounds(self):
+        app = ChessAnalysisApp(chess.Board("7k/8/8/2p5/3P4/8/8/7K w - - 0 1"), self.engine, 0.05, 3)
+        async with app.run_test() as pilot:
+            await pilot.press("M")
+            for size in ((40, 24), (160, 50)):
+                with self.subTest(size=size):
+                    await pilot.resize_terminal(*size)
+                    app.move_entry.source = None
+                    unmarked = app.query_one("#board").render()
+                    app.move_entry.source = chess.D4
+                    marked = app.query_one("#board").render()
+                    self.assertEqual(marked.plain.count("●"), 1)
+                    self.assertEqual(marked.plain.count("○"), 1)
+                    self.assertEqual(marked.plain.replace("●", " ").replace("○", " "), unmarked.plain)
+                    for marker in ("●", "○"):
+                        offset = marked.plain.index(marker)
+                        marker_style = marked.get_style_at_offset(Console(), offset)
+                        original_style = unmarked.get_style_at_offset(Console(), offset)
+                        self.assertEqual(marker_style.bgcolor, original_style.bgcolor)
+                        self.assertNotEqual(marker_style.color, original_style.color)
+                    self.assertFalse(any(marked.get_style_at_offset(Console(), span.start).underline
+                                         for span in marked.spans))
+
+    async def test_entry_uses_colors_without_last_move_or_check_stripes(self):
+        app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3)
+        async with app.run_test() as pilot:
+            await pilot.press("M", "e", "4", "enter")
+            last_move = app.query_one("#board").render()
+            self.assertTrue(any(last_move.get_style_at_offset(Console(), span.start).bgcolor.name == "#898e3c"
+                                for span in last_move.spans))
+            self.assertFalse(any(last_move.get_style_at_offset(Console(), span.start).underline
+                                 for span in last_move.spans))
+            app.replace_analysis(Analysis.from_input(chess.Board("4r2k/8/8/8/8/8/8/4K3 w - - 0 1")))
+            await pilot.press("M")
+            checked = app.query_one("#board").render()
+            self.assertTrue(any(checked.get_style_at_offset(Console(), span.start).bgcolor.name == "#ad4b4b"
+                                for span in checked.spans))
+            self.assertFalse(any(checked.get_style_at_offset(Console(), span.start).underline
+                                 for span in checked.spans))
 
     async def test_source_reselection_invalid_destination_and_flipped_cursor(self):
         app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3)

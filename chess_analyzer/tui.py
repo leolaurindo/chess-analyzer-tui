@@ -89,9 +89,9 @@ class ChessBoard(Widget):
     def render(self) -> Text:
         app = self.app
         board = app.analysis.current.board
-        selected = app.selected_move()
-        last = app.analysis.current.move_from_parent
         entry = app.move_entry
+        selected = None if entry else app.selected_move()
+        last = app.analysis.current.move_from_parent
         legal_destinations = {
             move.to_square for move in board.legal_moves
             if entry is not None and move.from_square == entry.source
@@ -117,6 +117,8 @@ class ChessBoard(Widget):
                         background = "#898e3c"
                     if selected and square in (selected.from_square, selected.to_square):
                         background = "#4c809c"
+                    if entry and square == entry.source:
+                        background = "#a16b28"
                     if board.is_check() and square == board.king(board.turn):
                         background = "#ad4b4b"
                     symbol = " "
@@ -127,19 +129,26 @@ class ChessBoard(Widget):
                         piece_row = row - (cell_height // 2 - len(lines) // 2)
                         if 0 <= piece_row < len(lines):
                             symbol = lines[piece_row]
-                    if entry:
-                        if square in legal_destinations:
-                            background = "#397a50"
-                        if square == entry.source:
-                            background = "#a16b28"
                     color = "#ffffff" if art and piece and piece.color else "#121212"
                     style = f"bold {color} on {background}"
-                    if entry and ((board.is_check() and square == board.king(board.turn))
-                                  or (last and square in (last.from_square, last.to_square))):
-                        style += " underline"
-                    if entry and square == entry.cursor:
+                    cursor = entry is not None and square == entry.cursor
+                    if cursor:
                         style += " reverse"
-                    text.append(symbol.center(cell_width), style=style)
+                    cell = Text(symbol.center(cell_width), style=style)
+                    marker_row = 0 if piece else cell_height // 2
+                    if square in legal_destinations and row == marker_row:
+                        # Captures get a ring in spare padding; never overwrite piece art.
+                        column = cell.plain.find(" ") if piece else (cell_width - 1) // 2
+                        if column >= 0:
+                            marker = "○" if piece else "●"
+                            cell = Text(cell.plain[:column] + marker + cell.plain[column + 1:], style=style)
+                            # Approximate a 25%-opaque dark circle against the displayed square.
+                            marker_background = color if cursor else background
+                            channels = [int(marker_background[i:i + 2], 16) for i in (1, 3, 5)]
+                            marker_color = "#" + "".join(f"{channel * 3 // 4:02x}" for channel in channels)
+                            cell.stylize(Style(color=marker_color, bgcolor=marker_background,
+                                               bold=False, reverse=False), column, column + 1)
+                    text.append(cell)
                 text.append("\n")
         text.append("   " + "".join(chess.FILE_NAMES[file].center(cell_width) for file in files))
         return text
@@ -922,7 +931,8 @@ class ChessAnalysisApp(App):
                 "\nArrows: move cursor in displayed board orientation"
                 "\nSpace / Enter: select piece, then legal destination"
                 "\nSelect the same piece again to deselect; another friendly piece to reselect."
-                "\nGreen: legal destinations · orange: selected piece"
+                "\nSubtle circles: legal destinations · orange: selected piece"
+                "\nYellow: last move · red: checked king"
                 "\nType SAN (Nf3, O-O, a8=N) or UCI (g1f3); Enter submits."
                 "\nClear notation before using arrows; Backspace on empty text clears selection."
                 "\nBoard promotion: q/r/b/n + Enter; empty Enter chooses queen."

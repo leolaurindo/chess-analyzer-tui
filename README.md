@@ -339,8 +339,10 @@ starts normal evaluation and next-move analysis without leaving persistent entry
 
 - **Arrows** move the highlighted board cursor in the displayed orientation.
   **Space** or **Enter** selects your piece, then its destination. Legal
-  destinations are green and the selected piece is orange. Select the same piece
-  again to deselect, or another friendly piece to reselect.
+  destinations have subtle circles (filled on empty squares, hollow for captures);
+  the selected piece is orange. Last-move squares stay yellow and a checked king
+  stays red, without stripes. Select the same piece again to deselect, or another
+  friendly piece to reselect.
 - Alternatively, type **SAN** (`Nf3`, `h4`, `O-O`, `a8=N`) or **UCI** (`g1f3`,
   `a7a8n`) and press **Enter**. There are no hjkl movement bindings, so `h` remains
   available for notation. Clear typed notation before navigating with arrows.
