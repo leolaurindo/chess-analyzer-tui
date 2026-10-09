@@ -191,6 +191,7 @@ class ChessAnalysisApp(App):
         Binding("m", "start_move_entry(False)", "Move", show=False),
         Binding("M", "start_move_entry(True)", "Moves", show=False),
         Binding("backspace", "entry_backspace", "Clear", show=False, priority=True),
+        Binding("tab,shift+tab", "focus_move_entry", "Move entry", show=False, priority=True),
         Binding("f", "flip_board", "Flip", show=False),
         Binding("e", "export_analysis", "Export", show=False),
         Binding("r", "reanalyze", "Re-analyze", show=False),
@@ -264,7 +265,8 @@ class ChessAnalysisApp(App):
             with VerticalScroll(id="analysis-side"):
                 with Vertical(id="move-entry-panel"):
                     yield Static(id="move-entry-hint")
-                    yield MoveNotationInput(placeholder="Type SAN / UCI, then Enter", id="move-notation")
+                    yield MoveNotationInput(placeholder="Type SAN / UCI, then Enter",
+                                            select_on_focus=False, id="move-notation")
                 for name in ("opening", "engine-title", "return-game", "candidates", "comments",
                              "pv", "history", "status"):
                     yield Static(id=name)
@@ -298,12 +300,14 @@ class ChessAnalysisApp(App):
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
         if action in {"home_plain", "help_plain", "quit_plain"}:
-            return self.move_entry is None and not isinstance(self.focused, (Input, TextArea))
+            return (self.move_entry is None or isinstance(self.screen, ModalScreen)) and not isinstance(
+                self.focused, (Input, TextArea)
+            )
         if action in {"home", "help", "quit"}:
             return True
         if isinstance(self.screen, ModalScreen):
             return False
-        entry_actions = {"select_square", "entry_backspace", "exit_move_entry"}
+        entry_actions = {"select_square", "entry_backspace", "exit_move_entry", "focus_move_entry"}
         if action in entry_actions:
             return self.move_entry is not None
         if self.move_entry is not None:
@@ -479,6 +483,14 @@ class ChessAnalysisApp(App):
         self.refresh_bindings()
         self.query_one("#move-notation", Input).focus()
         self.query_one("#move-entry-panel").scroll_visible(animate=False)
+
+    def action_focus_move_entry(self) -> None:
+        if self.move_entry is not None and not isinstance(self.screen, ModalScreen):
+            self.query_one("#move-notation", Input).focus()
+
+    def on_click(self) -> None:
+        # Clicking non-actionable history/panel text must not strand notation input.
+        self.action_focus_move_entry()
 
     def action_exit_move_entry(self) -> None:
         if self.move_entry is None:
@@ -903,6 +915,22 @@ class ChessAnalysisApp(App):
                 "\n↑/↓: change provider, even while typing username"
                 "\nEnter in username: save default and browse\nPublic username: letters, numbers, _ or -"
             )
+        elif self.move_entry is not None and not isinstance(screen, ModalScreen):
+            title = "Move entry help"
+            details = (
+                "\n\nMove entry\nm: one successful move · M: multiple moves"
+                "\nArrows: move cursor in displayed board orientation"
+                "\nSpace / Enter: select piece, then legal destination"
+                "\nSelect the same piece again to deselect; another friendly piece to reselect."
+                "\nGreen: legal destinations · orange: selected piece"
+                "\nType SAN (Nf3, O-O, a8=N) or UCI (g1f3); Enter submits."
+                "\nClear notation before using arrows; Backspace on empty text clears selection."
+                "\nBoard promotion: q/r/b/n + Enter; empty Enter chooses queen."
+                "\nClick a suggested move to follow it. Engine evaluation continues normally."
+                "\nOther analysis shortcuts are suspended while entering moves."
+                "\nEsc: exit entry without moving; Esc again returns to the original game."
+                "\nF1 preserves the entry draft; F2 leaves entry and goes Home."
+            )
         elif isinstance(screen, (CommentEditor, SaveAnalysisDialog, ImportDialog)):
             title = ("Comment help" if isinstance(screen, CommentEditor) else
                      "Save help" if isinstance(screen, SaveAnalysisDialog) else "Import help")
@@ -926,6 +954,8 @@ class ChessAnalysisApp(App):
                 "\nPgUp: game start · PgDown: last original position"
                 "\nFor FEN input, both return to the imported FEN."
                 "\nf: flip · r: reanalyze\nc: edit position comment"
+                "\nm: enter one legal move · M: enter moves until Esc"
+                "\nUse arrows + Space/Enter, or type SAN/UCI notation."
             )
             if self.analysis.return_position is not None:
                 details += "\nEsc: return to original game"

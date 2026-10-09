@@ -331,6 +331,34 @@ position (and subsequent moves) can be matched. Labels work offline.
 Moves, the return link, and any original-game move (or Start) are clickable.
 Branches are retained, and navigation never waits for analysis.
 
+### Enter your own moves
+
+Press **m** to enter one legal move, or **M** (Shift+m) to keep entering moves
+until **Esc**. The board and engine results stay visible; each accepted move
+starts normal evaluation and next-move analysis without leaving persistent entry.
+
+- **Arrows** move the highlighted board cursor in the displayed orientation.
+  **Space** or **Enter** selects your piece, then its destination. Legal
+  destinations are green and the selected piece is orange. Select the same piece
+  again to deselect, or another friendly piece to reselect.
+- Alternatively, type **SAN** (`Nf3`, `h4`, `O-O`, `a8=N`) or **UCI** (`g1f3`,
+  `a7a8n`) and press **Enter**. There are no hjkl movement bindings, so `h` remains
+  available for notation. Clear typed notation before navigating with arrows.
+- **Backspace** edits notation; with empty text it clears the selected piece or
+  pending promotion. Board promotions prompt for **q/r/b/n**, then Enter; Enter
+  with no promotion letter chooses a queen.
+- Engine/retained moves remain clickable and follow the same single/persistent
+  entry behavior. Other analysis shortcuts are suspended during entry.
+  **F1** opens help with your draft preserved; **F2** leaves entry and goes Home.
+- Illegal, ambiguous, malformed, and null moves are rejected without changing
+  the position or tree. Single-move mode exits only after a successful move.
+
+Your moves use the existing retained branches, never replace the original game,
+are saved in sessions/library analyses, and are included in PGN exports.
+**Esc first exits entry without changing position; Esc again returns to the
+original-game branch point.** Following an original continuation stays on the
+original game. FEN-only analyses keep their existing back/root navigation.
+
 Use at least 40×24 terminal cells. Larger boards use multiline pieces; smaller
 ones use chess glyphs. Narrow layouts stack the panels; scroll with the mouse
 wheel. PgUp/PgDown navigate the game's boundaries on the analysis screen, and
