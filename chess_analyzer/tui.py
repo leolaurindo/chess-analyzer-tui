@@ -473,15 +473,21 @@ class ChessAnalysisApp(App):
             self.refresh_board()
             self.refresh_analysis_panel()
 
+    def follow_move(self, move: chess.Move) -> None:
+        node = self.analysis.current
+        if move not in node.board.legal_moves:
+            raise ValueError("The move is not legal in this position.")
+        if node.is_mainline:
+            original = node.mainline_next
+            self.analysis.return_position = (
+                None if original and original.move_from_parent == move else node
+            )
+        self.show_position(node.child(move))
+
     def action_next_position(self) -> None:
         move = self.selected_move()
         if move is not None:
-            if self.analysis.current.is_mainline:
-                original = self.analysis.current.mainline_next
-                self.analysis.return_position = (
-                    None if original and original.move_from_parent == move else self.analysis.current
-                )
-            self.show_position(self.analysis.current.child(move))
+            self.follow_move(move)
 
     def action_follow_choice(self, index: int) -> None:
         self.analysis.current.selected = index
