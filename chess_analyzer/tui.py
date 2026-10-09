@@ -11,7 +11,7 @@ import chess.engine
 import chess.pgn
 from rich.style import Style
 from rich.text import Text
-from textual import work
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -28,6 +28,7 @@ from .dialogs import (AccountSelectionDialog, AnalysisDialog, CommentEditor,
 from .export import export_directory
 from .game import Analysis, Candidate, Node, history_to_san
 from .library import SavedAnalysis, library_path
+from .move_entry import MoveEntry, MoveNotationInput
 from .openings import opening_label
 from .piece_art import PIECE_ART
 
@@ -88,8 +89,13 @@ class ChessBoard(Widget):
     def render(self) -> Text:
         app = self.app
         board = app.analysis.current.board
-        selected = app.selected_move()
+        entry = app.move_entry
+        selected = None if entry else app.selected_move()
         last = app.analysis.current.move_from_parent
+        legal_destinations = {
+            move.to_square for move in board.legal_moves
+            if entry is not None and move.from_square == entry.source
+        } if entry and entry.source is not None else set()
         files = list(range(7, -1, -1) if app.analysis.flipped else range(8))
         ranks = range(8) if app.analysis.flipped else range(7, -1, -1)
         cell_width = max(2, min(10, (self.size.width - 3) // 8))
@@ -111,6 +117,8 @@ class ChessBoard(Widget):
                         background = "#898e3c"
                     if selected and square in (selected.from_square, selected.to_square):
                         background = "#4c809c"
+                    if entry and square == entry.source:
+                        background = "#a16b28"
                     if board.is_check() and square == board.king(board.turn):
                         background = "#ad4b4b"
                     symbol = " "
@@ -122,7 +130,25 @@ class ChessBoard(Widget):
                         if 0 <= piece_row < len(lines):
                             symbol = lines[piece_row]
                     color = "#ffffff" if art and piece and piece.color else "#121212"
-                    text.append(symbol.center(cell_width), style=f"bold {color} on {background}")
+                    style = f"bold {color} on {background}"
+                    cursor = entry is not None and square == entry.cursor
+                    if cursor:
+                        style += " reverse"
+                    cell = Text(symbol.center(cell_width), style=style)
+                    marker_row = 0 if piece else cell_height // 2
+                    if square in legal_destinations and row == marker_row:
+                        # Captures get a ring in spare padding; never overwrite piece art.
+                        column = cell.plain.find(" ") if piece else (cell_width - 1) // 2
+                        if column >= 0:
+                            marker = "○" if piece else "●"
+                            cell = Text(cell.plain[:column] + marker + cell.plain[column + 1:], style=style)
+                            # Approximate a 25%-opaque dark circle against the displayed square.
+                            marker_background = color if cursor else background
+                            channels = [int(marker_background[i:i + 2], 16) for i in (1, 3, 5)]
+                            marker_color = "#" + "".join(f"{channel * 3 // 4:02x}" for channel in channels)
+                            cell.stylize(Style(color=marker_color, bgcolor=marker_background,
+                                               bold=False, reverse=False), column, column + 1)
+                    text.append(cell)
                 text.append("\n")
         text.append("   " + "".join(chess.FILE_NAMES[file].center(cell_width) for file in files))
         return text
@@ -159,14 +185,20 @@ class ChessAnalysisApp(App):
     #pv, #history { border-top: solid #30363d; padding-top: 1; margin-top: 1; }
     #history { color: #c9d1d9; }
     #status { margin-top: 1; }
+    #move-entry-panel { height: auto; margin-bottom: 1; }
+    #move-notation { height: 1; border: none; padding: 0; }
+    #move-entry-hint { color: #58a6ff; }
     """
     BINDINGS = [
         Binding("left", "previous_position", "Back", show=False, priority=True),
         Binding("right", "next_position", "Follow", priority=True),
-        Binding("enter", "next_position", "Follow", show=False, priority=True),
+        Binding("enter", "confirm_position", "Follow / select", show=False, priority=True),
         Binding("up", "select_move(-1)", "Choose", show=False, priority=True),
         Binding("down", "select_move(1)", "Choose", show=False, priority=True),
+        Binding("escape", "exit_move_entry", "Exit entry", priority=True),
         Binding("escape", "return_to_game", "Back to game", priority=True),
+        Binding("backspace", "entry_backspace", "Clear", show=False, priority=True),
+        Binding("tab,shift+tab", "focus_move_entry", "Move entry", show=False, priority=True),
         Binding("f", "flip_board", "Flip", show=False),
         Binding("e", "export_analysis", "Export", show=False),
         Binding("r", "reanalyze", "Re-analyze", show=False),
@@ -186,6 +218,8 @@ class ChessAnalysisApp(App):
         Binding("f1", "help", "Help", show=False, priority=True),
         Binding("q", "quit_plain", "Quit", show=False, priority=True),
         Binding("ctrl+q", "quit", "Quit", show=False, priority=True),
+        Binding("m", "start_move_entry(False)", "Move"),
+        Binding("M", "start_move_entry(True)", "Moves"),
     ]
 
     def __init__(self, board: chess.Board, engine: chess.engine.UciProtocol,
@@ -224,6 +258,7 @@ class ChessAnalysisApp(App):
         self.preserved_analysis: tuple[Analysis, str] | None = None
         self.saved_title = ""
         self.analysis_requested = asyncio.Event()
+        self.move_entry: MoveEntry | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -237,6 +272,10 @@ class ChessAnalysisApp(App):
                 yield Static(id="bottom-player", classes="player-name")
                 yield Static(id="fen")
             with VerticalScroll(id="analysis-side"):
+                with Vertical(id="move-entry-panel"):
+                    yield Static(id="move-entry-hint")
+                    yield MoveNotationInput(placeholder="Type SAN / UCI, then Enter",
+                                            select_on_focus=False, id="move-notation")
                 for name in ("opening", "engine-title", "return-game", "candidates", "comments",
                              "pv", "history", "status"):
                     yield Static(id=name)
@@ -270,16 +309,25 @@ class ChessAnalysisApp(App):
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
         if action in {"home_plain", "help_plain", "quit_plain"}:
-            return not isinstance(self.focused, (Input, TextArea))
+            return (self.move_entry is None or isinstance(self.screen, ModalScreen)) and not isinstance(
+                self.focused, (Input, TextArea)
+            )
         if action in {"home", "help", "quit"}:
             return True
         if isinstance(self.screen, ModalScreen):
             return False
+        entry_actions = {"select_square", "entry_backspace", "exit_move_entry", "focus_move_entry"}
+        if action in entry_actions:
+            return self.move_entry is not None
+        if self.move_entry is not None:
+            return action in {"previous_position", "next_position", "confirm_position",
+                              "select_move", "follow_choice"}
         if action == "preserved_game":
             return self.analysis is self.home_analysis and self.preserved_analysis is not None
         return action != "return_to_game" or self.analysis.return_position is not None
 
     def refresh_ui(self) -> None:
+        self.refresh_move_entry()
         self.refresh_board()
         self.refresh_analysis_panel()
         board = self.analysis.current.board
@@ -294,7 +342,8 @@ class ChessAnalysisApp(App):
         elif self.analysis.return_position:
             branch = self.analysis.return_position.board
             turn = "." if branch.turn else "..."
-            info.append(f"   Exploring from {branch.fullmove_number}{turn} · Esc: game",
+            escape_hint = "exit entry" if self.move_entry else "game"
+            info.append(f"   Exploring from {branch.fullmove_number}{turn} · Esc: {escape_hint}",
                         style="bold #58a6ff")
         self.query_one("#position-info", Static).update(info)
         opening = opening_label(board)
@@ -336,8 +385,9 @@ class ChessAnalysisApp(App):
         )
         return_link = self.query_one("#return-game", Static)
         return_link.display = self.analysis.return_position is not None
-        return_link.update(Text("← Back to original game [Esc]", style=Style(
-            color="#e3b341", meta={"@click": "app.return_to_game"},
+        return_hint = "exit entry, then Esc" if self.move_entry else "Esc"
+        return_link.update(Text(f"← Back to original game [{return_hint}]", style=Style(
+            color="#e3b341", meta={} if self.move_entry else {"@click": "app.return_to_game"},
         )))
         selected_move = self.selected_move()
         lines = Text("Next move · ↑/↓ choose\n", style="bold")
@@ -413,6 +463,162 @@ class ChessAnalysisApp(App):
             history.append(history_to_san(node))
         self.query_one("#history", Static).update(history)
 
+    def refresh_move_entry(self) -> None:
+        panel = self.query_one("#move-entry-panel")
+        panel.display = self.move_entry is not None
+        entry = self.move_entry
+        if entry is None:
+            return
+        mode = "Moves" if entry.persistent else "Move"
+        hint = Text(f"{mode} · cursor {chess.square_name(entry.cursor)}")
+        if entry.source is not None:
+            hint.append(f" · from {chess.square_name(entry.source)}")
+        if entry.promotions:
+            hint.append("\nPromotion: q/r/b/n + Enter (default q)")
+        else:
+            hint.append("\nArrows · Space/Enter select · Esc exits")
+        if entry.error:
+            hint.append("\n" + entry.error, style="bold red")
+        self.query_one("#move-entry-hint", Static).update(hint)
+
+    def action_start_move_entry(self, persistent: bool) -> None:
+        board = self.analysis.current.board
+        if not any(board.legal_moves):
+            self.notify("No legal moves in this position.", severity="warning")
+            return
+        self.move_entry = MoveEntry(persistent, board.king(board.turn))
+        self.query_one("#move-notation", Input).value = ""
+        self.refresh_ui()
+        self.refresh_bindings()
+        self.query_one("#move-notation", Input).focus()
+        self.query_one("#move-entry-panel").scroll_visible(animate=False)
+
+    def action_focus_move_entry(self) -> None:
+        if self.move_entry is not None and not isinstance(self.screen, ModalScreen):
+            self.query_one("#move-notation", Input).focus()
+
+    def on_click(self) -> None:
+        # Clicking non-actionable history/panel text must not strand notation input.
+        self.action_focus_move_entry()
+
+    def action_exit_move_entry(self) -> None:
+        if self.move_entry is None:
+            return
+        self.move_entry = None
+        self.query_one("#move-notation", Input).value = ""
+        self.set_focus(None)
+        self.refresh_ui()
+        self.refresh_bindings()
+
+    @on(Input.Changed, "#move-notation")
+    def notation_changed(self, event: Input.Changed) -> None:
+        entry = self.move_entry
+        if entry is not None:
+            entry.error = ""
+            if event.value and not entry.promotions:
+                entry.source = None
+            self.refresh_move_entry()
+            self.refresh_board()
+
+    def move_cursor(self, horizontal: int, vertical: int) -> None:
+        entry = self.move_entry
+        if entry is None:
+            return
+        if self.query_one("#move-notation", Input).value or entry.promotions:
+            entry.error = "Backspace clears text/selection; Enter submits."
+        else:
+            orientation = -1 if self.analysis.flipped else 1
+            file = max(0, min(7, chess.square_file(entry.cursor) + horizontal * orientation))
+            rank = max(0, min(7, chess.square_rank(entry.cursor) + vertical * orientation))
+            entry.cursor = chess.square(file, rank)
+            entry.error = ""
+        self.refresh_move_entry()
+        self.refresh_board()
+
+    def action_entry_backspace(self) -> None:
+        notation = self.query_one("#move-notation", Input)
+        if notation.value:
+            notation.action_delete_left()
+        elif self.move_entry is not None:
+            self.move_entry.source = None
+            self.move_entry.promotions.clear()
+            self.move_entry.error = ""
+            self.refresh_move_entry()
+            self.refresh_board()
+
+    def action_select_square(self) -> None:
+        entry = self.move_entry
+        if entry is None:
+            return
+        board = self.analysis.current.board
+        if self.query_one("#move-notation", Input).value or entry.promotions:
+            entry.error = "Use Enter to submit notation or promotion."
+        elif entry.cursor == entry.source:
+            entry.source = None
+            entry.error = ""
+        elif (piece := board.piece_at(entry.cursor)) and piece.color == board.turn:
+            entry.source = entry.cursor
+            entry.error = ""
+        elif entry.source is None:
+            entry.error = "Select a piece belonging to the side to move."
+        else:
+            moves = [move for move in board.legal_moves
+                     if move.from_square == entry.source and move.to_square == entry.cursor]
+            if not moves:
+                entry.error = "Not a legal destination."
+            elif moves[0].promotion:
+                entry.promotions = moves
+                entry.error = ""
+            else:
+                self.accept_entered_move(moves[0])
+                return
+        self.refresh_move_entry()
+        self.refresh_board()
+
+    def action_confirm_position(self) -> None:
+        entry = self.move_entry
+        if entry is None:
+            self.action_next_position()
+            return
+        text = self.query_one("#move-notation", Input).value.strip()
+        if entry.promotions:
+            promotion = {"q": chess.QUEEN, "r": chess.ROOK,
+                         "b": chess.BISHOP, "n": chess.KNIGHT}.get(text.lower() or "q")
+            move = next((move for move in entry.promotions if move.promotion == promotion), None)
+            if move is None:
+                entry.error = "Choose q, r, b or n, then Enter."
+            else:
+                self.accept_entered_move(move)
+                return
+        elif text:
+            try:
+                move = self.analysis.current.board.parse_san(text)
+                self.accept_entered_move(move)
+                return
+            except ValueError:
+                entry.error = "Enter a legal, unambiguous SAN or UCI move."
+        else:
+            self.action_select_square()
+            return
+        self.refresh_move_entry()
+
+    def accept_entered_move(self, move: chess.Move) -> None:
+        entry = self.move_entry
+        if entry is None:
+            return
+        # Shared validation runs before changing either the tree or entry state.
+        self.follow_move(move, preserve_entry=True)
+        if entry.persistent:
+            entry.source = None
+            entry.promotions.clear()
+            entry.error = ""
+            self.query_one("#move-notation", Input).value = ""
+            self.refresh_ui()
+            self.query_one("#move-entry-panel").scroll_visible(animate=False)
+            self.query_one("#move-notation", Input).focus()
+        else:
+            self.action_exit_move_entry()
+
     def set_status(self, message: str, style: str = "dim") -> None:
         self.query_one("#status", Static).update(Text(message, style=style))
 
@@ -467,25 +673,43 @@ class ChessAnalysisApp(App):
                 self.refresh_ui()
 
     def action_select_move(self, direction: int) -> None:
+        if self.move_entry is not None:
+            self.move_cursor(0, -direction)
+            return
         moves = self.move_choices(self.analysis.current)
         if moves:
             self.analysis.current.selected = (self.analysis.current.selected + direction) % len(moves)
             self.refresh_board()
             self.refresh_analysis_panel()
 
+    def follow_move(self, move: chess.Move, *, preserve_entry: bool = False) -> None:
+        node = self.analysis.current
+        if move not in node.board.legal_moves:
+            raise ValueError("The move is not legal in this position.")
+        if node.is_mainline:
+            original = node.mainline_next
+            self.analysis.return_position = (
+                None if original and original.move_from_parent == move else node
+            )
+        self.show_position(node.child(move), preserve_entry=preserve_entry)
+
     def action_next_position(self) -> None:
+        if self.move_entry is not None:
+            # Right moves the cursor; Enter uses action_confirm_position.
+            self.move_cursor(1, 0)
+            return
         move = self.selected_move()
         if move is not None:
-            if self.analysis.current.is_mainline:
-                original = self.analysis.current.mainline_next
-                self.analysis.return_position = (
-                    None if original and original.move_from_parent == move else self.analysis.current
-                )
-            self.show_position(self.analysis.current.child(move))
+            self.follow_move(move)
 
     def action_follow_choice(self, index: int) -> None:
         self.analysis.current.selected = index
-        self.action_next_position()
+        if self.move_entry is not None:
+            move = self.selected_move()
+            if move is not None:
+                self.accept_entered_move(move)
+        else:
+            self.action_next_position()
 
     def action_game_position(self, index: int) -> None:
         node = self.analysis.root
@@ -496,12 +720,15 @@ class ChessAnalysisApp(App):
         node.selected = 0
         self.show_position(node)
 
-    def show_position(self, node: Node, *, persist: bool = True) -> None:
+    def show_position(self, node: Node, *, persist: bool = True,
+                      preserve_entry: bool = False) -> None:
+        if not preserve_entry:
+            self.action_exit_move_entry()
         self.analysis.current = node
         self.refresh_bindings()
         self.set_status("Analysis ready." if node.analyzed else "")
         self.refresh_ui()
-        self.query_one("#candidates").scroll_visible(animate=False)
+        self.query_one("#move-entry-panel" if self.move_entry else "#candidates").scroll_visible(animate=False)
         self.analyze_requested_position()
         if persist:
             self.save_session()
@@ -514,6 +741,9 @@ class ChessAnalysisApp(App):
             self.show_position(node)
 
     def action_previous_position(self) -> None:
+        if self.move_entry is not None:
+            self.move_cursor(-1, 0)
+            return
         node = self.analysis.current.parent
         if node:
             if node.is_mainline:
@@ -693,6 +923,23 @@ class ChessAnalysisApp(App):
                 "\n↑/↓: change provider, even while typing username"
                 "\nEnter in username: save default and browse\nPublic username: letters, numbers, _ or -"
             )
+        elif self.move_entry is not None and not isinstance(screen, ModalScreen):
+            title = "Move entry help"
+            details = (
+                "\n\nMove entry\nm: one successful move · M: multiple moves"
+                "\nArrows: move cursor in displayed board orientation"
+                "\nSpace / Enter: select piece, then legal destination"
+                "\nSelect the same piece again to deselect; another friendly piece to reselect."
+                "\nSubtle circles: legal destinations · orange: selected piece"
+                "\nYellow: last move · red: checked king"
+                "\nType SAN (Nf3, O-O, a8=N) or UCI (g1f3); Enter submits."
+                "\nClear notation before using arrows; Backspace on empty text clears selection."
+                "\nBoard promotion: q/r/b/n + Enter; empty Enter chooses queen."
+                "\nClick a suggested move to follow it. Engine evaluation continues normally."
+                "\nOther analysis shortcuts are suspended while entering moves."
+                "\nEsc: exit entry without moving; Esc again returns to the original game."
+                "\nF1 preserves the entry draft; F2 leaves entry and goes Home."
+            )
         elif isinstance(screen, (CommentEditor, SaveAnalysisDialog, ImportDialog)):
             title = ("Comment help" if isinstance(screen, CommentEditor) else
                      "Save help" if isinstance(screen, SaveAnalysisDialog) else "Import help")
@@ -716,6 +963,8 @@ class ChessAnalysisApp(App):
                 "\nPgUp: game start · PgDown: last original position"
                 "\nFor FEN input, both return to the imported FEN."
                 "\nf: flip · r: reanalyze\nc: edit position comment"
+                "\nm: enter one legal move · M: enter moves until Esc"
+                "\nUse arrows + Space/Enter, or type SAN/UCI notation."
             )
             if self.analysis.return_position is not None:
                 details += "\nEsc: return to original game"
