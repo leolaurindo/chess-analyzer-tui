@@ -619,8 +619,14 @@ class ChessAnalysisApp(App):
         else:
             self.action_exit_move_entry()
 
+    def _analysis_screen_is_active(self) -> bool:
+        screens = self.screen_stack
+        return bool(screens and screens[-1] is screens[0]
+                    and screens[0].query("#status").nodes)
+
     def set_status(self, message: str, style: str = "dim") -> None:
-        self.query_one("#status", Static).update(Text(message, style=style))
+        if self._analysis_screen_is_active():
+            self.query_one("#status", Static).update(Text(message, style=style))
 
     def analyze_requested_position(self) -> None:
         self.analysis_requested.set()
@@ -668,7 +674,7 @@ class ChessAnalysisApp(App):
             node.analyzed = True
             choices = self.move_choices(node)
             node.selected = choices.index(selected) if selected in choices else 0
-            if node is self.analysis.current:
+            if node is self.analysis.current and self._analysis_screen_is_active():
                 self.set_status("Analysis ready.")
                 self.refresh_ui()
 
