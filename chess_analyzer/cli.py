@@ -14,7 +14,7 @@ import chess
 import chess.engine
 import chess.pgn
 
-from .config import load_account
+from .config import EngineSettings, load_account, load_engine_settings
 from .input import load_input, player_name
 from .game import Analysis
 from .online import validate_username
@@ -133,17 +133,13 @@ def main() -> None:
     parser.add_argument("--user", help="Public username to browse (requires --browse)")
     parser.add_argument("--white", help="White player's display name (overrides PGN header)")
     parser.add_argument("--black", help="Black player's display name (overrides PGN header)")
-    parser.add_argument("-t", "--time", type=float, default=1.0, help="Thinking time per position")
-    parser.add_argument("-n", "--lines", type=int, default=5, help="Number of engine continuations")
-    parser.add_argument("--threads", type=int, default=2, help="Engine threads (if supported)")
-    parser.add_argument("--hash", type=int, default=256, help="Engine hash size in MB (if supported)")
+    parser.add_argument("-t", "--time", type=float, help="Thinking time per position")
+    parser.add_argument("-n", "--lines", type=int, help="Number of engine continuations")
+    parser.add_argument("--threads", type=int, help="Engine threads (if supported)")
+    parser.add_argument("--hash", type=int, help="Engine hash size in MB (if supported)")
     parser.add_argument("--engine", help="Path to a UCI engine executable (default: Stockfish)")
     parser.add_argument("--ascii", action="store_true", help="Use letters instead of chess glyphs")
     args = parser.parse_args()
-    if not math.isfinite(args.time) or args.time <= 0:
-        parser.error("--time must be a positive, finite number")
-    if min(args.lines, args.threads, args.hash) < 1:
-        parser.error("--lines, --threads and --hash must be positive")
     if args.browse:
         if args.user is None:
             parser.error("--browse requires --user NAME")
@@ -164,6 +160,20 @@ def main() -> None:
     if args.follow and args.account is None:
         raise SystemExit("No default account configured. Start chess-analyzer and press u "
                          "to save a public account, then run chess-analyzer --follow.")
+    try:
+        defaults = load_engine_settings()
+    except (OSError, ValueError) as exc:
+        if not args.account_error:
+            parser.error(str(exc))
+        defaults = EngineSettings()
+    args.time = defaults.time if args.time is None else args.time
+    args.lines = defaults.lines if args.lines is None else args.lines
+    args.threads = defaults.threads if args.threads is None else args.threads
+    args.hash = defaults.hash if args.hash is None else args.hash
+    if not math.isfinite(args.time) or args.time <= 0:
+        parser.error("--time must be a positive, finite number")
+    if min(args.lines, args.threads, args.hash) < 1:
+        parser.error("--lines, --threads and --hash must be positive")
     session = None
     if args.continue_session or ((args.library or args.browse or args.follow) and session_path().exists()):
         try:
