@@ -9,6 +9,11 @@ Initialize analysis from FEN or PGN text, files, your clipboard, directly from U
 
 ![Chess Analyzer TUI demo](demos/showcase.gif)
 
+**Convenient ways to jump straight into the analysis**:
+- Jump into your latest game: Save a public Chess.com or Lichess account once, then run `chess-analyzer -f` to analyze its latest available completed game. Or press **Ctrl+L** from Home or analysis. See [Latest available game](#latest-available-game) for setup details.
+- Start an analysis from your clipboard with `chess-analyzer --clip`: it can be FEN position, PGN and even chess.com or lichess url.
+- Browse games from public accounts with `chess-analyzer --browse lichess --user <user>`
+
 ## Install and run
 
 Requires Python 3.11+.
