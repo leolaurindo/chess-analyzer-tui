@@ -7,7 +7,7 @@ from pathlib import Path
 import chess
 import chess.engine
 from rich.console import Console
-from textual.widgets import Input
+from textual.widgets import Footer, Input
 
 from chess_analyzer.cli import find_stockfish
 from chess_analyzer.input import parse_input
@@ -73,6 +73,30 @@ class MoveEntryTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(anchor.children[chess.Move.from_uci("h2h4")], branch)
             self.assertEqual([move.uci() for move in game.mainline_moves()], ["e2e4", "e7e5"])
 
+    async def test_move_entry_shortcuts_appear_in_footer(self):
+        app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3)
+        async with app.run_test(size=(100, 34)) as pilot:
+            await pilot.pause()
+            footer = app.screen.query_one(Footer)
+            rendered = "".join(str(key.render()) for key in footer.query("FooterKey"))
+            self.assertIn("m Move", rendered)
+            self.assertIn("M Moves", rendered)
+
+    async def test_persistent_move_entry_keeps_cursor_square_after_moves(self):
+        app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3)
+        async with app.run_test() as pilot:
+            await pilot.press("M")
+            cursor = app.move_entry.cursor
+            self.assertEqual(cursor, chess.E1)
+
+            await pilot.press("e", "4", "enter")
+            self.assertEqual(app.analysis.current.board.peek().uci(), "e2e4")
+            self.assertEqual(app.move_entry.cursor, cursor)
+
+            await pilot.press("e", "5", "enter")
+            self.assertEqual(app.analysis.current.board.peek().uci(), "e7e5")
+            self.assertEqual(app.move_entry.cursor, cursor)
+
     async def test_bad_notation_preserves_single_move_mode_and_tree(self):
         app = ChessAnalysisApp(chess.Board(), self.engine, 0.05, 3)
         async with app.run_test() as pilot:
@@ -115,7 +139,7 @@ class MoveEntryTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("up", "up", "enter")
             self.assertEqual(app.analysis.current.board.peek().uci(), "e2e4")
             self.assertIsNotNone(app.move_entry)
-            await pilot.press("down", "enter", "down", "down", "space")
+            await pilot.press("up", "up", "up", "enter", "down", "down", "enter")
             self.assertEqual(app.analysis.current.board.peek().uci(), "e7e5")
             self.assertIsNotNone(app.move_entry)
 

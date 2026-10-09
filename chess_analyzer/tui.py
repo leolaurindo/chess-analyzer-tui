@@ -197,8 +197,6 @@ class ChessAnalysisApp(App):
         Binding("down", "select_move(1)", "Choose", show=False, priority=True),
         Binding("escape", "exit_move_entry", "Exit entry", priority=True),
         Binding("escape", "return_to_game", "Back to game", priority=True),
-        Binding("m", "start_move_entry(False)", "Move", show=False),
-        Binding("M", "start_move_entry(True)", "Moves", show=False),
         Binding("backspace", "entry_backspace", "Clear", show=False, priority=True),
         Binding("tab,shift+tab", "focus_move_entry", "Move entry", show=False, priority=True),
         Binding("f", "flip_board", "Flip", show=False),
@@ -220,6 +218,8 @@ class ChessAnalysisApp(App):
         Binding("f1", "help", "Help", show=False, priority=True),
         Binding("q", "quit_plain", "Quit", show=False, priority=True),
         Binding("ctrl+q", "quit", "Quit", show=False, priority=True),
+        Binding("m", "start_move_entry(False)", "Move"),
+        Binding("M", "start_move_entry(True)", "Moves"),
     ]
 
     def __init__(self, board: chess.Board, engine: chess.engine.UciProtocol,
@@ -609,7 +609,6 @@ class ChessAnalysisApp(App):
         # Shared validation runs before changing either the tree or entry state.
         self.follow_move(move, preserve_entry=True)
         if entry.persistent:
-            entry.cursor = self.analysis.current.board.king(self.analysis.current.board.turn)
             entry.source = None
             entry.promotions.clear()
             entry.error = ""
