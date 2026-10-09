@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chess-analyzer-tui"
-version = "0.2.1"
+version = "0.2.2"
 description = "Terminal chess analysis TUI with Stockfish."
 readme = "README.md"
 license = "MIT"

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2
+
+### Fixed
+
+- Avoid updating the analysis UI after its screen has closed while engine analysis is finishing.
+
+### Changed
+
+- Run the cross-platform test workflow before building and publishing a tagged release. Any failing test job blocks the release.
+
 ## 0.2.1
 
 ### Added
