@@ -276,6 +276,7 @@ class FollowUiTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(app.analysis.flipped)
                 self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · Changed Black")
                 self.assertEqual(app.think_time, 0.05)
+            app.set_status("Late engine result")
 
         for flag in ("-f", "--follow"):
             self.session.write_bytes(before)
