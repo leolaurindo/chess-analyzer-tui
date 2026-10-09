@@ -18,12 +18,22 @@ Initialize analysis from FEN or PGN text, files, your clipboard, directly from U
 
 Requires Python 3.11+.
 
-Install the `chess-analyzer-tui` package from PyPI with either tool
-manager. Both install the `chess-analyzer` command (the command name is not a
-separate PyPI package):
+Installation options:
+```sh
+brew install leolaurindo/tap/chess-analyzer-tui
+uv tool install chess-analyzer-tui
+pipx install  chess-analyzer-tui
+```
+
+
+All options provide the `chess-analyzer` command.
+The Homebrew formula also installs Stockfish and the Python runtime.
+Otherwise, see [how to install stockfish for your machine here](#stockfish).
+
+
+**Common entry points**:
 
 ```sh
-uv tool install chess-analyzer-tui   # or: pipx install chess-analyzer-tui
 chess-analyzer # Home: analyze the initial position
 chess-analyzer "1. e4 e5 2. Nf3 Nc6 *"
 chess-analyzer https://lichess.org/nrmBGiQF
@@ -40,23 +50,24 @@ chess-analyzer --browse lichess --user leolaurindo
 chess-analyzer --white "Supi" --black "Carlsen" "2kr2nr/1pp2ppp/3b4/1P3q2/2Pp1B2/5Q1P/RP3PP1/R5K1 w - - 0 1"
 ```
 
-The command works from any directory. If it isn't on PATH, use
+Run `chess-analyzer` from any directory. If the command isn't on your `PATH`, run
 `uv tool update-shell` (or `pipx ensurepath`) and restart your shell.
 
-Pass quoted FEN or PGN text, a Chess.com game URL, a Lichess game or study URL, or
-an HTTPS URL that serves plain-text PGN. The examples include a Lichess study of
-Mikhail Tal and a regular Lichess game by Magnus Carlsen, plus a public Chess.com
-game by GM LPSupi. A game URL is sufficient for either provider; no username,
-month, or API key is required. Without a game link, use
-`--browse chess.com --user NAME` or `--browse lichess --user NAME` instead. Chess.com URL-only lookup uses an undocumented callback to
-resolve archive details, then downloads the PGN from a public monthly archive;
-if that callback becomes unavailable, use the browser, which uses documented
-APIs only. Use `--file`
-to read a UTF-8 file or `--clip` to read the clipboard. Choose one input source;
-the format is detected automatically. URL loads
-are limited to public HTTPS hosts and a 10-second timeout per request. Generic
-downloads are capped at 4 MiB; Chess.com monthly archives at 16 MiB. Without
-input, analysis starts from the initial position.
+**Input:** Provide one source: quoted FEN or PGN text, a Chess.com game URL, a
+Lichess game or study URL, an HTTPS URL serving plain-text PGN, `--file PATH` for
+a UTF-8 file, or `--clip` for clipboard contents. The format is detected
+automatically. With no input, analysis starts from the initial position.
+
+A game URL works directly for Chess.com and Lichess; no username, month, or API
+key is needed. To browse a user's public games instead, use
+`--browse chess.com --user NAME` or `--browse lichess --user NAME`. Chess.com
+game URLs are resolved through an undocumented callback and downloaded from a
+public monthly archive. If the callback stops working, use `--browse`, which
+uses documented APIs only.
+
+URL loads are restricted to public HTTPS hosts and time out after 10 seconds per
+request. Generic downloads are limited to 4 MiB; Chess.com monthly archives are
+limited to 16 MiB.
 
 Options:
 
