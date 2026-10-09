@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from itertools import product
@@ -67,6 +68,24 @@ class CliTests(unittest.TestCase):
                     self.assertEqual(board.fen(), expected_fen)
                     self.assertEqual(actual_moves, expected_moves)
                     self.assertEqual((white, black), names)
+
+    def test_engine_config_defaults_and_cli_overrides(self):
+        self.config.write_text(json.dumps({"engine": {
+            "time": 5, "lines": 3, "threads": 4, "hash": 512,
+        }}))
+        for options, expected in (
+            ([], (5.0, 3, 4, 512)),
+            (["--time", "7", "--lines", "2", "--threads", "1", "--hash", "128"],
+             (7.0, 2, 1, 128)),
+        ):
+            with (
+                self.subTest(options=options),
+                patch("sys.argv", ["chess-analyzer", "--engine", "stockfish", *options]),
+                patch("chess_analyzer.cli.run_app", new_callable=AsyncMock) as run,
+            ):
+                main()
+                args = run.call_args.args[0]
+                self.assertEqual((args.time, args.lines, args.threads, args.hash), expected)
 
     def test_clipboard_is_not_read_without_opt_in(self):
         with (

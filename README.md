@@ -78,10 +78,10 @@ Options:
 - `--follow` / `-f` — load the default account’s latest available completed standard game
 - `--browse PROVIDER --user NAME` — browse public games; provider is `chess.com` or `lichess`
 - `--ascii` — use ASCII pieces
-- `--time 0.5` / `-t 0.5` — set analysis time
-- `--lines 3` — show multiple lines
-- `--threads 2` — set engine threads, if supported
-- `--hash 256` — set engine hash size, if supported
+- `--time 5` / `-t 5` — thinking time per position (default: 1 second)
+- `--lines 3` — number of engine continuations (default: 5)
+- `--threads 2` — engine threads, if supported (default: 2)
+- `--hash 256` — engine hash size in MB, if supported (default: 256)
 - `--engine /path/to/engine` — choose a UCI engine executable
 - `--white "Supi"` / `--black "Carlsen"` — label the players (override PGN names)
 
@@ -229,14 +229,33 @@ when no completed standard games are available. Public archives can lag, so the
 result is described as **latest available**. Lichess traverses filtered empty
 pages using its API's newest-created ordering.
 
-The account is stored atomically as provider/username JSON in `config.json`,
-separately from analysis snapshots:
+The default account and engine settings are stored in `config.json`, separately
+from analysis snapshots. Account updates are atomic:
 
 - Linux: `$XDG_CONFIG_HOME/chess-analyzer`, or `~/.config/chess-analyzer`
 - macOS: `~/Library/Application Support/chess-analyzer`
 - Windows: `%LOCALAPPDATA%\chess-analyzer`
 
-A failed account save is shown and leaves the previous account/config unchanged.
+A failed account save is shown and leaves the previous account/config unchanged. Set
+optional global engine defaults by adding an `engine` object to this file:
+
+```json
+{
+  "provider": "lichess",
+  "username": "your-username",
+  "engine": {
+    "time": 5,
+    "lines": 3,
+    "threads": 2,
+    "hash": 256
+  }
+}
+```
+
+The engine fields are all optional; omitted fields use the defaults listed above.
+Command-line options override the corresponding config values. Pressing **r** in
+the TUI reruns the current position with the configured analysis time; it does not
+extend an existing search.
 
 ## Stockfish
 
