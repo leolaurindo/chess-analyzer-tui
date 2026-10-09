@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.1
+
+### Added
+
+- Configurable global ensine defaults in `config.json` for analysis time, lines, threads and hash size. Command-line options override these defaults.
+- Enter legal moves with `m` (one move) or `M` (persistent entry), using SAN/UCI notation or board navigation. Legal destinations and promotion choices are shown. Engine analysis remains available.
+
+### Changed
+
+- Updated the README and showcase demo with the latest controls and behavior.
+
+### Compatibility
+
+- Move entry preserves existing branches and does not change the session/save format.
+
+
 ## 0.2.0
 
 ### Added
