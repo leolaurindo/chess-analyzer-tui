@@ -165,7 +165,7 @@ class ManualRegressionTests(unittest.IsolatedAsyncioTestCase):
                                black_name="My display alias", account=Account("chess.com", "ALICE"))
         async with app.run_test() as pilot:
             self.assertTrue(app.analysis.flipped)
-            self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · My display alias")
+            self.assertTrue(app.query_one("#bottom-player").render().plain.startswith("Black · My display alias"))
             await pilot.press("f")
             self.assertFalse(app.analysis.flipped)  # Navigation must not fight a manual flip.
             with tempfile.TemporaryDirectory() as directory:
@@ -176,7 +176,7 @@ class ManualRegressionTests(unittest.IsolatedAsyncioTestCase):
             white.flipped = True
             app.replace_analysis(white)
             self.assertFalse(app.analysis.flipped)
-            self.assertEqual(app.query_one("#bottom-player").render().plain, "White · alice")
+            self.assertTrue(app.query_one("#bottom-player").render().plain.startswith("White · alice"))
             unrelated = Analysis.from_input(*parse_input('[White "Other"]\n[Black "Unknown"]\n\n1. d4 *'))
             unrelated.flipped = True
             app.replace_analysis(unrelated)

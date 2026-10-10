@@ -89,7 +89,7 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((app.analysis.white_name, app.analysis.black_name), ("Alice", "Carol"))
                     self.assertEqual(app.analysis.root.comment, "Introduction")
                     self.assertTrue(app.analysis.flipped)
-                    self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · Carol")
+                    self.assertTrue(app.query_one("#bottom-player").render().plain.startswith("Black · Carol"))
                     self.assertEqual(app.analysis.current.board.peek().uci(), "e7e5")
                     imported = app.analysis
                     await pilot.press("b", "escape")

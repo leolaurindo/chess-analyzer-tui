@@ -40,8 +40,35 @@ def comment_text(text: str) -> str:
     return CLOCK_TAG.sub("", text).strip()
 
 
-def side_label(color: str, name: str) -> str:
-    return color if name == color else f"{color} · {name}"
+def side_label(color: str, name: str, captured: list[tuple[chess.PieceType, int]],
+               material: int) -> str:
+    label = color if name == color else f"{color} · {name}"
+    piece_color = color == "White"
+    pieces = " ".join(chess.Piece(piece, not piece_color).unicode_symbol()
+                       for piece, count in captured for _ in range(count))
+    return f"{label}   {pieces or '—'} {material:+d}"
+
+
+def captured_material(node: Node) -> tuple[dict[chess.Color, dict[chess.PieceType, int]], dict[chess.Color, int]]:
+    values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}
+    captured = {chess.WHITE: {}, chess.BLACK: {}}
+    material = {chess.WHITE: 0, chess.BLACK: 0}
+    path = []
+    while node.parent is not None:
+        path.append(node)
+        node = node.parent
+    for child in reversed(path):
+        board = child.parent.board
+        move = child.move_from_parent
+        square = move.to_square
+        if board.is_en_passant(move):
+            square = chess.square(chess.square_file(move.to_square), chess.square_rank(move.from_square))
+        piece = board.piece_at(square)
+        if piece is not None:
+            capturer = board.turn
+            captured[capturer][piece.piece_type] = captured[capturer].get(piece.piece_type, 0) + 1
+            material[capturer] += values.get(piece.piece_type, 0)
+    return captured, material
 
 
 def format_score(score: chess.engine.PovScore) -> str:
@@ -370,11 +397,17 @@ class ChessAnalysisApp(App):
         self.query_one("#board", ChessBoard).refresh()
         self.query_one("#evaluation-bar", EvaluationBar).refresh()
         top_color, top_name, bottom_color, bottom_name = (
-            ("White", self.analysis.white_name, "Black", self.analysis.black_name) if self.analysis.flipped
-            else ("Black", self.analysis.black_name, "White", self.analysis.white_name)
+            (chess.WHITE, self.analysis.white_name, chess.BLACK, self.analysis.black_name)
+            if self.analysis.flipped else
+            (chess.BLACK, self.analysis.black_name, chess.WHITE, self.analysis.white_name)
         )
-        self.query_one("#top-player", Static).update(side_label(top_color, top_name))
-        self.query_one("#bottom-player", Static).update(side_label(bottom_color, bottom_name))
+        captured, material = captured_material(self.analysis.current)
+        self.query_one("#top-player", Static).update(side_label(
+            "White" if top_color else "Black", top_name, sorted(captured[top_color].items()),
+            material[top_color] - material[not top_color]))
+        self.query_one("#bottom-player", Static).update(side_label(
+            "White" if bottom_color else "Black", bottom_name, sorted(captured[bottom_color].items()),
+            material[bottom_color] - material[not bottom_color]))
 
     def refresh_analysis_panel(self) -> None:
         node = self.analysis.current
