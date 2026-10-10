@@ -304,10 +304,16 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press("ctrl+s")
                     self.assertTrue(await asyncio.to_thread(started.wait, 1))
                     try:
-                        await asyncio.wait_for(pilot.press(cancel), timeout=2)
+                        if cancel == "ctrl+q":
+                            # Pilot.press waits for idle after the app exits, which never
+                            # becomes true; exercise the quit action directly in this case.
+                            await app.action_quit()
+                        else:
+                            await asyncio.wait_for(pilot.press(cancel), timeout=2)
                     finally:
                         release.set()
-                    await pilot.pause()
+                    if cancel != "ctrl+q":
+                        await pilot.pause()
                     if cancel == "f2":
                         self.assertIs(app.preserved_analysis[0], game)
                         await pilot.press("g")

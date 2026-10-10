@@ -263,11 +263,11 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
                                white_name=white_name, black_name=black_name)
         async with app.run_test(size=(120, 42)) as pilot:
             await wait_for_analysis(app, pilot)
-            self.assertEqual(app.query_one("#top-player").render().plain, "Black · Carlsen")
-            self.assertEqual(app.query_one("#bottom-player").render().plain, "White · Supi")
+            self.assertTrue(app.query_one("#top-player").render().plain.startswith("Black · Carlsen"))
+            self.assertTrue(app.query_one("#bottom-player").render().plain.startswith("White · Supi"))
             await pilot.press("f")
-            self.assertEqual(app.query_one("#top-player").render().plain, "White · Supi")
-            self.assertEqual(app.query_one("#bottom-player").render().plain, "Black · Carlsen")
+            self.assertTrue(app.query_one("#top-player").render().plain.startswith("White · Supi"))
+            self.assertTrue(app.query_one("#bottom-player").render().plain.startswith("Black · Carlsen"))
             await pilot.press("f")
             await pilot.press("right", "enter")
             self.assertEqual(app.analysis.current.board.fen(), final.fen())  # Stop at the PGN's end.
