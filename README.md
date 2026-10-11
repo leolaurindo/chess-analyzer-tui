@@ -59,7 +59,10 @@ a UTF-8 file, or `--clip` for clipboard contents. The format is detected
 automatically. With no input, analysis starts from the initial position.
 
 A game URL works directly for Chess.com and Lichess; no username, month, or API
-key is needed. To browse a user's public games instead, use
+key is needed. Chess.com accepts `/game/ID`, `/ID`, `/game/live/ID`, and
+`/live/game/ID`, plus the explicit `daily` equivalents. Links without a game
+type try live first, then daily if the live callback cannot find the game.
+To browse a user's public games instead, use
 `--browse chess.com --user NAME` or `--browse lichess --user NAME`. Chess.com
 game URLs are resolved through an undocumented callback and downloaded from a
 public monthly archive. If the callback stops working, use `--browse`, which

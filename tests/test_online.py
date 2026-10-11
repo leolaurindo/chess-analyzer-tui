@@ -71,6 +71,55 @@ class ProviderTests(unittest.TestCase):
               self.assertRaisesRegex(ValueError, "Game not found")):
             load_url("https://www.chess.com/game/live/1")
 
+    def test_chesscom_url_aliases_load_the_same_archived_game(self):
+        headers = json.dumps({"game": {"pgnHeaders": {
+            "Date": "2024.01.01", "White": "Alice"}}})
+        for kind in ("live", "daily"):
+            for path in ("game/1", "1", f"game/{kind}/1", f"{kind}/game/1"):
+                for archive_path in (f"game/{kind}/1", "game/1", "1"):
+                    with self.subTest(kind=kind, path=path, archive_path=archive_path):
+                        pgn = (f'[Link "https://www.chess.com/{archive_path}"]\n'
+                               '[Result "1-0"]\n\n1. e4 e5 1-0')
+
+                        def fetch(url, **kwargs):
+                            if "/callback/" in url:
+                                if kind == "daily" and "/callback/live/" in url:
+                                    error = HTTPError(url, 404, "Not Found", {}, None)
+                                    error.close()
+                                    raise ValueError("Could not fetch URL") from error
+                                if url != f"https://www.chess.com/callback/{kind}/game/1":
+                                    self.fail(f"Wrong game type requested: {url}")
+                                return headers
+                            if url == "https://api.chess.com/pub/player/Alice/games/2024/01/pgn":
+                                return pgn
+                            self.fail(f"Unexpected request: {url}")
+
+                        with (patch("chess_analyzer.online._validate_url"),
+                              patch("chess_analyzer.online.fetch_text", side_effect=fetch)):
+                            loaded = load_url(f"https://www.chess.com/{path}/?ref=share")
+                        self.assertIn("1. e4 e5 1-0", loaded)
+                        self.assertIn(f'[Link "https://www.chess.com/{archive_path}"]', loaded)
+
+    def test_chesscom_untyped_url_tries_daily_when_live_metadata_is_missing(self):
+        headers = json.dumps({"game": {"pgnHeaders": {
+            "Date": "2024.01.01", "White": "Alice"}}})
+        pgn = '[Link "https://www.chess.com/game/daily/1"]\n\n1. e4 e5 1-0'
+        with (patch("chess_analyzer.online._validate_url"),
+              patch("chess_analyzer.online.fetch_text", side_effect=["{}", headers, pgn])):
+            self.assertIn("1. e4 e5 1-0", load_url("https://www.chess.com/1"))
+
+    def test_chesscom_untyped_url_does_not_retry_transport_errors(self):
+        for code in (403, 429, 500):
+            error = HTTPError("https://www.chess.com", code, "Request failed", {}, None)
+            error.close()
+            failure = ValueError(f"Request failed: {code}")
+            failure.__cause__ = error
+            with (self.subTest(code=code), patch("chess_analyzer.online._validate_url"),
+                  patch("chess_analyzer.online.fetch_text", side_effect=failure) as fetch,
+                  self.assertRaisesRegex(ValueError, f"Request failed: {code}")):
+                load_url("https://www.chess.com/game/1")
+            fetch.assert_called_once()
+
     def test_rate_limit_is_reported_without_automatic_retry(self):
         error = HTTPError("https://lichess.org", 429, "Too many requests", {}, None)
         with (patch("chess_analyzer.online._validate_url"),
