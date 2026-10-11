@@ -430,11 +430,14 @@ class ChessAnalysisApp(App):
             san = board.san(move) if move else "End of original game"
             child = node.children.get(move)
             imported = child is not None and child.imported
+            best = original and node.candidates and move == node.candidates[0].move
             label = ("Original" if original else "Variation" if imported
                      else "Engine" if candidate else "Explored")
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
                 row += f"  {candidate.score}"
+            if best:
+                row += "  ← Best"
             lines.append(row + "\n", style=Style(
                 color="#e3b341" if original else "#58a6ff", reverse=index == node.selected,
                 meta={"@click": f"app.follow_choice({index})"},

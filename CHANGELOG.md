@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+### Fixed
+
+- Mark the original move with `← Best` when it is the engine’s top recommendation, while preserving its Original label.
+
 ## 0.2.2
 
 ### Fixed
