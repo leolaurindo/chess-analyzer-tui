@@ -252,6 +252,31 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             app.action_game_position(0)
             self.assertFalse(app.query_one("#opening").display)
 
+    async def test_original_move_label_reflects_engine_top_recommendation(self):
+        board, game, _, _ = parse_input("1. e4 *")
+        app = ChessAnalysisApp(board, self.engine, 0.05, 3, game=game)
+        async with app.run_test(size=(120, 42)) as pilot:
+            await wait_for_analysis(app, pilot)
+            node = app.analysis.root
+            app.analysis.current = node
+            node.analyzed = True
+            original = Candidate(chess.Move.from_uci("e2e4"), "+0.30", "1. e4")
+            alternative = Candidate(chess.Move.from_uci("d2d4"), "+0.40", "1. d4")
+            for candidates, annotation in [
+                ([original, alternative], "  ← Best"),
+                ([alternative, original], ""),
+                ([alternative], ""),
+                ([], ""),
+            ]:
+                with self.subTest(annotation=annotation, candidates=candidates):
+                    node.candidates = candidates
+                    app.refresh_analysis_panel()
+                    rows = app.query_one("#candidates").render().plain.splitlines()
+                    score = "  +0.30" if original in candidates else ""
+                    self.assertEqual(rows[1], f"▶ Original  e4{score}{annotation}")
+                    self.assertEqual(sum("e4" in row for row in rows), 1)
+                    self.assertNotIn("Best", "\n".join(rows[2:]))
+
     async def test_pgn_navigation_and_exploration(self):
         board, moves, white_name, black_name = parse_input(
             '[White "Supi"]\n[Black "Carlsen"]\n\n1. e4 h5 *\n'
