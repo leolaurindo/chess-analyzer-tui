@@ -1,10 +1,33 @@
 # Changelog
 
+## 0.2.5
+
+### Added
+
+- Preview engine and retained variations with ↑/↓ without committing navigation; Original restores the current game position. →/Enter follows the selected move, and Esc dismisses a preview.
+- BEST labels on the engine's top recommendation, including original-game moves.
+
+### Fixed
+
+- Evaluate original moves separately when they are absent from the requested engine recommendations, so their scores and continuations remain available.
+- Match the evaluation bar to the displayed position rather than an unplayed original move. Unknown evaluations show a gray bar instead of another position's score.
+- Keep the preview board, FEN, turn/check indicators, captured material and FEN export consistent without saving temporary branches.
+
 ## 0.2.4
 
 ### Fixed
 
 - Mark the original move with `← Best` when it is the engine’s top recommendation, while preserving its Original label.
+
+## 0.2.3
+
+### Fixed
+
+- Support Chess.com game URL aliases.
+
+### Added
+
+- Captured material in player labels.
 
 ## 0.2.2
 
