@@ -17,7 +17,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Resize
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 from textual.widget import Widget
 from textual.widgets import Footer, Header, Input, Static, TextArea
 
@@ -321,6 +321,7 @@ class ChessAnalysisApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.screen_change_signal.subscribe(self, self.refresh_resumed_analysis)
         self.refresh_ui()
         self.analyze_requested_position()
         self.analysis_loop()
@@ -694,6 +695,13 @@ class ChessAnalysisApp(App):
         screens = self.screen_stack
         return bool(screens and screens[-1] is screens[0]
                     and screens[0].query("#status").nodes)
+
+    def refresh_resumed_analysis(self, screen: Screen) -> None:
+        if self._analysis_screen_is_active():
+            self.refresh_bindings()
+            self.refresh_ui()
+            if self.analysis.current.analyzed:
+                self.set_status("Analysis ready.")
 
     def set_status(self, message: str, style: str = "dim") -> None:
         if self._analysis_screen_is_active():

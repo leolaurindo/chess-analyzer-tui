@@ -11,6 +11,7 @@ from rich.style import Style
 from textual.widgets import Checkbox, Input, TextArea
 
 from chess_analyzer.cli import find_stockfish
+from chess_analyzer.export import export_analysis
 from chess_analyzer.game import Analysis, Candidate
 from chess_analyzer.input import parse_input
 from chess_analyzer.library import list_analyses, load_analysis
@@ -295,6 +296,18 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.screen.analysis.current.board.fen(),
                              app.displayed_position().board.fen())
             self.assertIs(app.screen.analysis.root, app.analysis.root)
+            with tempfile.TemporaryDirectory() as directory:
+                fen_path = Path(directory) / "preview.fen"
+                pgn_path = Path(directory) / "game.pgn"
+                session_path = Path(directory) / "session.json"
+                export_analysis(app.screen.analysis, fen_path, "fen")
+                export_analysis(app.screen.analysis, pgn_path, "pgn")
+                save_session(app.analysis, session_path)
+                self.assertEqual(fen_path.read_text().strip(), app.displayed_position().board.fen())
+                self.assertNotIn("c5", pgn_path.read_text())
+                restored = load_session(session_path)
+                self.assertEqual(restored.current.board.fen(), original_fen)
+                self.assertEqual(len(restored.current.children), len(children))
             await pilot.press("escape")
             self.assertEqual(node.children, children)
             await pilot.press("down")  # Wrap back to Original.
@@ -319,6 +332,53 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("escape")
             self.assertIs(app.analysis.current, node)
             self.assertEqual(node.board.fen(), original_fen)
+
+    async def test_preview_refreshes_when_analysis_finishes_behind_help(self):
+        board, game, _, _ = parse_input("1. e4 h5 *")
+        app = ChessAnalysisApp(board, self.engine, 30, 1, game=game)
+        node = app.analysis.root.mainline_next
+        app.analysis.current = node
+        node.analyzed = True
+        node.candidates = [Candidate(chess.Move.from_uci("e7e5"), "+1.00", "1...e5")]
+        finish = asyncio.Event()
+
+        async def updated_moves(position, root_moves=None):
+            await finish.wait()
+            move = root_moves[0] if root_moves else chess.Move.from_uci("c7c5")
+            return [Candidate(move, "+2.00", position.board.variation_san([move]))]
+
+        with patch.object(app, "analyze_moves", side_effect=updated_moves):
+            async with app.run_test() as pilot:
+                await pilot.press("down", "r", "f1")
+                finish.set()
+                await wait_for_analysis(app, pilot)
+                await pilot.press("escape")
+                self.assertIsNone(app.preview_move())
+                self.assertEqual(app.query_one("#fen").render().plain, f"FEN  {node.board.fen()}")
+                self.assertNotIn("Preview", app.query_one("#position-info").render().plain)
+                self.assertIn("Black to move", app.query_one("#position-info").render().plain)
+
+    async def test_retained_variation_preview_uses_child_evaluation(self):
+        board, game, _, _ = parse_input("1. e4 h5 (1... c5) *")
+        app = ChessAnalysisApp(board, self.engine, 30, 1, game=game)
+        node = app.analysis.root.mainline_next
+        app.analysis.current = node
+        node.analyzed = True
+        node.candidates = [Candidate(chess.Move.from_uci("e7e5"), "+1.00", "1...e5")]
+        child = node.children[chess.Move.from_uci("c7c5")]
+        child.candidates = [Candidate(chess.Move.from_uci("g1f3"), "-3.00", "2. Nf3")]
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            self.assertEqual(app.displayed_position().board.fen(), child.board.fen())
+            bar = app.query_one("#evaluation-bar")
+            bar.render()
+            self.assertLess(bar.white_share, 0.5)
+            child.candidates.clear()
+            self.assertEqual({Style.parse(span.style).bgcolor.name for span in bar.render().spans},
+                             {"#59616d"})
+            await pilot.press("up")
+            bar.render()
+            self.assertGreater(bar.white_share, 0.5)
 
     async def test_preview_uses_terminal_result_without_a_candidate_score(self):
         board, game, _, _ = parse_input("1. f3 e5 2. g4 *")
