@@ -110,7 +110,7 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             await wait_for_analysis(app, pilot)
             self.assertTrue(app.analysis.current.candidates)
 
-    async def test_evaluation_bar_tracks_displayed_position_and_marks_unknown_scores(self):
+    async def test_evaluation_bar_retains_value_and_spins_until_analysis_is_ready(self):
         app = ChessAnalysisApp(chess.Board(), self.engine, 30, 3)
         app.analysis.root.candidates = [
             Candidate(chess.Move.from_uci("e2e4"), "+3.00", "1. e4"),
@@ -133,14 +133,31 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.analysis.current.candidates, [])
             self.assertFalse(app.analysis.current.analyzed)
             with self.subTest("pending analysis"):
-                self.assertEqual(set(colors()), {"#59616d"})
+                self.assertEqual(colors(), negative)
+                self.assertTrue(bar.updating)
+                self.assertIn(bar.SPINNER_FRAMES[bar.spinner_frame], bar.render().plain)
+                self.assertIn("previous value retained", bar.tooltip)
+                frame = bar.spinner_frame
+                bar.advance_spinner()
+                self.assertNotEqual(bar.spinner_frame, frame)
+                self.assertIn(bar.SPINNER_FRAMES[bar.spinner_frame], bar.render().plain)
+                self.assertEqual(colors(), negative)
             app.analysis.current.candidates = [
                 Candidate(chess.Move.from_uci("d7d5"), "?", "1... d5")]
+            app.analysis.current.analyzed = True
             app.refresh_board()
-            self.assertEqual(set(colors()), {"#59616d"})
+            self.assertEqual(colors(), negative)
+            self.assertFalse(bar.updating)
+            self.assertIn("?", bar.render().plain)
+            frame = bar.spinner_frame
+            bar.advance_spinner()
+            self.assertEqual(bar.spinner_frame, frame)
             app.analysis.current.candidates[0].score = "+0.00"
             app.refresh_board()
             even = colors()
+            self.assertFalse(bar.updating)
+            self.assertNotIn("?", bar.render().plain)
+            self.assertFalse(any(symbol in bar.render().plain for symbol in bar.SPINNER_FRAMES))
             self.assertLessEqual(abs(even.count("#f0f0e8") - even.count("#30343b")), 1)
             app.analysis.current.candidates[0].score = "M3"
             app.refresh_board()
@@ -148,6 +165,35 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             app.replace_analysis(Analysis.from_input(chess.Board("7k/5K2/6Q1/8/8/8/8/8 b - - 0 1")))
             drawn = colors()
             self.assertLessEqual(abs(drawn.count("#f0f0e8") - drawn.count("#30343b")), 1)
+
+    async def test_spinner_animates_during_reanalysis_and_stops_on_completion(self):
+        app = ChessAnalysisApp(chess.Board(), self.engine, 30, 1)
+        node = app.analysis.current
+        node.analyzed = True
+        node.candidates = [Candidate(chess.Move.from_uci("e2e4"), "+3.00", "1. e4")]
+        async with app.run_test() as pilot:
+            bar = app.query_one("#evaluation-bar")
+            bar.render()
+            share = bar.white_share
+            node.analyzed = False
+            node.candidates[0].score = "-3.00"
+            app.refresh_board()
+            bar.render()
+            self.assertTrue(bar.updating)
+            self.assertEqual(bar.white_share, share)
+            frame = bar.spinner_frame
+            await pilot.pause(0.2)
+            self.assertNotEqual(bar.spinner_frame, frame)
+            self.assertEqual(bar.white_share, share)
+            node.analyzed = True
+            bar.render()
+            self.assertFalse(bar.updating)
+            self.assertLess(bar.white_share, 0.5)
+            frame = bar.spinner_frame
+            await pilot.pause(0.2)
+            self.assertEqual(bar.spinner_frame, frame)
+            for row in bar.render().plain.splitlines():
+                self.assertEqual(len(row), 2)
 
     async def test_original_move_best_label_and_current_position_bar(self):
         board, game, _, _ = parse_input("1. e4 *")
@@ -373,9 +419,11 @@ class ChessTuiTests(unittest.IsolatedAsyncioTestCase):
             bar = app.query_one("#evaluation-bar")
             bar.render()
             self.assertLess(bar.white_share, 0.5)
+            share = bar.white_share
             child.candidates.clear()
-            self.assertEqual({Style.parse(span.style).bgcolor.name for span in bar.render().spans},
-                             {"#59616d"})
+            self.assertIn("?", bar.render().plain)
+            self.assertEqual(bar.white_share, share)
+            self.assertFalse(bar.updating)
             await pilot.press("up")
             bar.render()
             self.assertGreater(bar.white_share, 0.5)

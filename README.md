@@ -392,7 +392,10 @@ move, and red a checked king.
 
 The evaluation bar describes the displayed position: the current position's best
 engine line normally, or the selected move's score while previewing its resulting
-position. A gray bar means no evaluation is available yet, not a draw or a win probability.
+position. While analysis is pending, it keeps the last known bar visible with a
+small rotating square spinner. The new evaluation replaces it when ready. A `?`
+means no score is available; the retained bar is not an evaluation of the new
+position. Hovering over the bar explains its state. The bar is not a win probability.
 Move-row scores describe the position after that move, always from White's perspective;
 **BEST** marks the engine's top recommendation, including an original-game move.
 Original moves outside the requested engine lines receive a separate search, which

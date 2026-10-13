@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6
+
+### Changed
+
+- Preserve the last known evaluation bar during analysis, with a compact rotating square spinner instead of hiding it. Unavailable scores retain the bar with a `?` marker; tooltips explain the displayed state.
+
 ## 0.2.5
 
 ### Added
