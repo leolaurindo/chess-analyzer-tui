@@ -344,7 +344,8 @@ position on the current line. Transpositions are recognized; stepping back or
 exploring another line updates the label. For FEN-only input, only the supplied
 position (and subsequent moves) can be matched. Labels work offline.
 
-- **↑/↓** — choose an original move, retained variation, or engine alternative
+- **↑/↓** — preview a retained variation or engine alternative on the board;
+  selecting **Original** restores the current game position without playing its next move
 - **→/Enter** — follow the selected move; **←** — step back
 - **Esc** — return from an explored line to its game position; shown as **Back to game**
   in the command bar only while exploring a variation
@@ -389,8 +390,19 @@ wheel. PgUp/PgDown navigate the game's boundaries on the analysis screen, and
 scroll within help/dialogs. Blue highlights the selected move, yellow the previous
 move, and red a checked king.
 
-The evaluation bar follows the selected engine alternative's score and keeps its
-last value while Stockfish is thinking; it does not reset to the middle.
+The evaluation bar describes the displayed position: the current position's best
+engine line normally, or the selected move's score while previewing its resulting
+position. A gray bar means no evaluation is available yet, not a draw or a win probability.
+Move-row scores describe the position after that move, always from White's perspective;
+**BEST** marks the engine's top recommendation, including an original-game move.
+Original moves outside the requested engine lines receive a separate search, which
+can add another `--time` interval to analysis.
+
+Previews are temporary: suggestions always start from the same current position,
+without adding branches or saving navigation. **→/Enter** commits the selected move;
+**Esc** dismisses a preview before returning from an explored line. Starting move
+entry also dismisses the preview. FEN export uses the previewed board, while PGN
+export and saved analyses include only committed branches.
 
 ## Opening data credits
 

@@ -5,6 +5,7 @@ import asyncio
 import math
 import re
 from collections.abc import Callable
+from dataclasses import replace
 
 import chess
 import chess.engine
@@ -86,22 +87,31 @@ class EvaluationBar(Widget):
     white_share = 0.5
 
     def render(self) -> Text:
-        node = self.app.analysis.current
+        app = self.app
+        node = app.displayed_position()
         outcome = node.board.outcome()
         if outcome is not None:
             self.white_share = 0.5 if outcome.winner is None else float(outcome.winner)
         else:
-            selected = self.app.selected_move()
-            candidate = next((c for c in node.candidates if c.move == selected),
-                             next(iter(node.candidates), None))
-            if candidate is not None:
-                score = candidate.score
-                if score.startswith("M"):
-                    self.white_share = 1.0
-                elif score.startswith("-M"):
-                    self.white_share = 0.0
-                elif score != "?":
-                    self.white_share = 1 / (1 + math.exp(-float(score) / 1.5))
+            current = app.analysis.current
+            preview = app.preview_move()
+            candidate = (next((c for c in current.candidates if c.move == preview), None)
+                         if preview else next(iter(current.candidates), None))
+            if candidate is None and preview:
+                child = current.children.get(preview)
+                candidate = next(iter(child.candidates), None) if child else None
+            if candidate is None or candidate.score == "?":
+                self.white_share = 0.5
+                return Text("\n").join(
+                    Text("  ", style="on #59616d") for _ in range(max(1, self.size.height))
+                )
+            score = candidate.score
+            if score.startswith("M"):
+                self.white_share = 1.0
+            elif score.startswith("-M"):
+                self.white_share = 0.0
+            else:
+                self.white_share = 1 / (1 + math.exp(-float(score) / 1.5))
         height = max(1, self.size.height)
         white_rows = round(height * self.white_share)
         return Text("\n").join(
@@ -115,10 +125,11 @@ class ChessBoard(Widget):
 
     def render(self) -> Text:
         app = self.app
-        board = app.analysis.current.board
+        position = app.displayed_position()
+        board = position.board
         entry = app.move_entry
         selected = None if entry else app.selected_move()
-        last = app.analysis.current.move_from_parent
+        last = position.move_from_parent
         legal_destinations = {
             move.to_square for move in board.legal_moves
             if entry is not None and move.from_square == entry.source
@@ -286,6 +297,7 @@ class ChessAnalysisApp(App):
         self.saved_title = ""
         self.analysis_requested = asyncio.Event()
         self.move_entry: MoveEntry | None = None
+        self.preview_enabled = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -351,14 +363,17 @@ class ChessAnalysisApp(App):
                               "select_move", "follow_choice"}
         if action == "preserved_game":
             return self.analysis is self.home_analysis and self.preserved_analysis is not None
-        return action != "return_to_game" or self.analysis.return_position is not None
+        return (action != "return_to_game" or self.preview_move() is not None
+                or self.analysis.return_position is not None)
 
     def refresh_ui(self) -> None:
         self.refresh_move_entry()
         self.refresh_board()
         self.refresh_analysis_panel()
-        board = self.analysis.current.board
+        board = self.displayed_position().board
         info = Text("Home · " if self.analysis is self.home_analysis else "", style="bold")
+        if self.preview_move() is not None:
+            info.append("Preview · → / Enter follows · ", style="bold #58a6ff")
         info.append("White to move" if board.turn else "Black to move")
         if self.analysis is self.home_analysis and self.preserved_analysis is not None:
             info.append(" · g: game", style="bold #e3b341")
@@ -393,6 +408,26 @@ class ChessAnalysisApp(App):
         self.analysis.current.selected %= len(moves)
         return moves[self.analysis.current.selected]
 
+    def preview_move(self) -> chess.Move | None:
+        if not self.preview_enabled or self.move_entry is not None:
+            return None
+        node = self.analysis.current
+        move = self.selected_move()
+        original = node.mainline_next.move_from_parent if node.mainline_next else None
+        if node.is_mainline and move == original:
+            return None
+        return move
+
+    def displayed_position(self) -> Node:
+        """Build a temporary preview without adding a branch or changing navigation."""
+        node = self.analysis.current
+        move = self.preview_move()
+        if move is None:
+            return node
+        board = node.board.copy()
+        board.push(move)
+        return Node(board, parent=node, move_from_parent=move)
+
     def refresh_board(self) -> None:
         self.query_one("#board", ChessBoard).refresh()
         self.query_one("#evaluation-bar", EvaluationBar).refresh()
@@ -401,7 +436,7 @@ class ChessAnalysisApp(App):
             if self.analysis.flipped else
             (chess.BLACK, self.analysis.black_name, chess.WHITE, self.analysis.white_name)
         )
-        captured, material = captured_material(self.analysis.current)
+        captured, material = captured_material(self.displayed_position())
         self.query_one("#top-player", Static).update(side_label(
             "White" if top_color else "Black", top_name, sorted(captured[top_color].items()),
             material[top_color] - material[not top_color]))
@@ -423,21 +458,20 @@ class ChessAnalysisApp(App):
             color="#e3b341", meta={} if self.move_entry else {"@click": "app.return_to_game"},
         )))
         selected_move = self.selected_move()
-        lines = Text("Next move · ↑/↓ choose\n", style="bold")
+        lines = Text("Next move · ↑/↓ preview\n", style="bold")
         for index, move in enumerate(self.move_choices(node)):
             original = node.is_mainline and index == 0
             candidate = candidates.get(move)
             san = board.san(move) if move else "End of original game"
             child = node.children.get(move)
             imported = child is not None and child.imported
-            best = original and node.candidates and move == node.candidates[0].move
             label = ("Original" if original else "Variation" if imported
                      else "Engine" if candidate else "Explored")
             row = f"{'▶' if index == node.selected else ' '} {label:<9} {san}"
             if candidate:
                 row += f"  {candidate.score}"
-            if best:
-                row += "  ← Best"
+                if candidate is node.candidates[0]:
+                    row += "  ← BEST"
             lines.append(row + "\n", style=Style(
                 color="#e3b341" if original else "#58a6ff", reverse=index == node.selected,
                 meta={"@click": f"app.follow_choice({index})"},
@@ -518,6 +552,7 @@ class ChessAnalysisApp(App):
         self.query_one("#move-entry-hint", Static).update(hint)
 
     def action_start_move_entry(self, persistent: bool) -> None:
+        self.preview_enabled = False
         board = self.analysis.current.board
         if not any(board.legal_moves):
             self.notify("No legal moves in this position.", severity="warning")
@@ -667,6 +702,34 @@ class ChessAnalysisApp(App):
     def analyze_requested_position(self) -> None:
         self.analysis_requested.set()
 
+    async def analyze_moves(self, node: Node,
+                            root_moves: list[chess.Move] | None = None) -> list[Candidate] | None:
+        """Run an interruptible search; None means navigation canceled it."""
+        analysis = await self.engine.analysis(
+            node.board.copy(), chess.engine.Limit(time=self.think_time),
+            multipv=self.multipv if root_moves is None else 1, root_moves=root_moves,
+        )
+        with analysis:
+            finished = asyncio.create_task(analysis.wait())
+            changed = asyncio.create_task(self.analysis_requested.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    (finished, changed), return_when=asyncio.FIRST_COMPLETED,
+                )
+                if changed in done:
+                    analysis.stop()
+                await finished
+            finally:
+                changed.cancel()
+                await asyncio.gather(changed, return_exceptions=True)
+        if changed in done:
+            return None
+        return [
+            Candidate(info["pv"][0], format_score(info["score"]),
+                      node.board.variation_san(info["pv"]))
+            for info in analysis.multipv if info.get("pv")
+        ]
+
     @work(group="engine")
     async def analysis_loop(self) -> None:
         while True:
@@ -677,36 +740,23 @@ class ChessAnalysisApp(App):
                 continue
             self.set_status("Engine is thinking…", "yellow")
             try:
-                analysis = await self.engine.analysis(
-                    node.board.copy(), chess.engine.Limit(time=self.think_time),
-                    multipv=self.multipv,
-                )
-                with analysis:
-                    finished = asyncio.create_task(analysis.wait())
-                    changed = asyncio.create_task(self.analysis_requested.wait())
-                    try:
-                        done, _ = await asyncio.wait(
-                            (finished, changed), return_when=asyncio.FIRST_COMPLETED,
-                        )
-                        if changed in done:
-                            analysis.stop()
-                        await finished
-                    finally:
-                        changed.cancel()
-                        await asyncio.gather(changed, return_exceptions=True)
-                if changed in done:
+                candidates = await self.analyze_moves(node)
+                if candidates is None:
                     continue
+                original = node.mainline_next.move_from_parent if node.mainline_next else None
+                if original is not None and not any(c.move == original for c in candidates):
+                    original_candidates = await self.analyze_moves(node, [original])
+                    if original_candidates is None:
+                        continue
+                    # Append without changing the unrestricted search's recommendation order.
+                    candidates.extend(original_candidates)
             except chess.engine.EngineError as exc:
                 if node is self.analysis.current:
                     self.set_status(f"Engine error: {exc} · r to retry", "bold red")
                 continue
             previous = self.move_choices(node)
             selected = previous[node.selected] if node.selected < len(previous) else None
-            node.candidates = [
-                Candidate(info["pv"][0], format_score(info["score"]),
-                          node.board.variation_san(info["pv"]))
-                for info in analysis.multipv if info.get("pv")
-            ]
+            node.candidates = candidates
             node.analyzed = True
             choices = self.move_choices(node)
             node.selected = choices.index(selected) if selected in choices else 0
@@ -721,8 +771,9 @@ class ChessAnalysisApp(App):
         moves = self.move_choices(self.analysis.current)
         if moves:
             self.analysis.current.selected = (self.analysis.current.selected + direction) % len(moves)
-            self.refresh_board()
-            self.refresh_analysis_panel()
+            self.preview_enabled = True
+            self.refresh_bindings()
+            self.refresh_ui()
 
     def follow_move(self, move: chess.Move, *, preserve_entry: bool = False) -> None:
         node = self.analysis.current
@@ -764,6 +815,7 @@ class ChessAnalysisApp(App):
 
     def show_position(self, node: Node, *, persist: bool = True,
                       preserve_entry: bool = False) -> None:
+        self.preview_enabled = False
         if not preserve_entry:
             self.action_exit_move_entry()
         self.analysis.current = node
@@ -776,6 +828,12 @@ class ChessAnalysisApp(App):
             self.save_session()
 
     def action_return_to_game(self) -> None:
+        if self.preview_move() is not None:
+            self.preview_enabled = False
+            self.analysis.current.selected = 0
+            self.refresh_bindings()
+            self.refresh_ui()
+            return
         if self.analysis.return_position:
             node = self.analysis.return_position
             self.analysis.return_position = None
@@ -798,7 +856,8 @@ class ChessAnalysisApp(App):
         self.save_session()
 
     def action_export_analysis(self) -> None:
-        self.push_screen(ExportDialog(self.analysis, export_directory()))
+        displayed = replace(self.analysis, current=self.displayed_position())
+        self.push_screen(ExportDialog(displayed, export_directory()))
 
     def action_reanalyze(self) -> None:
         self.analysis.current.analyzed = False
@@ -809,6 +868,7 @@ class ChessAnalysisApp(App):
             analysis.orient_for(self.account.provider, self.account.username)
 
     def replace_analysis(self, analysis: Analysis, title: str = "") -> None:
+        self.preview_enabled = False
         self.orient_analysis(analysis)
         if self.analysis is self.home_analysis:
             self.home_title = self.saved_title
@@ -1001,7 +1061,8 @@ class ChessAnalysisApp(App):
             if self.analysis is self.home_analysis and self.preserved_analysis is not None:
                 navigation += "\ng: return to preserved game"
             details = (
-                "\n\nAnalysis\n↑/↓: choose move\n→ / Enter: follow · ←: back"
+                "\n\nAnalysis\n↑/↓: preview move · Original restores position"
+                "\n→ / Enter: follow · ←: back · Esc: dismiss preview"
                 "\nPgUp: game start · PgDown: last original position"
                 "\nFor FEN input, both return to the imported FEN."
                 "\nf: flip · r: reanalyze\nc: edit position comment"
