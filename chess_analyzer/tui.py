@@ -85,11 +85,24 @@ def format_score(score: chess.engine.PovScore) -> str:
 
 class EvaluationBar(Widget):
     white_share = 0.5
+    updating = False
+    spinner_frame = 0
+    SPINNER_FRAMES = ("◰", "◳", "◲", "◱")
+
+    def on_mount(self) -> None:
+        self.set_interval(0.15, self.advance_spinner)
+
+    def advance_spinner(self) -> None:
+        if self.updating:
+            self.spinner_frame = (self.spinner_frame + 1) % len(self.SPINNER_FRAMES)
+            self.refresh()
 
     def render(self) -> Text:
         app = self.app
         node = app.displayed_position()
         outcome = node.board.outcome()
+        self.updating = outcome is None and not app.analysis.current.analyzed
+        unavailable = False
         if outcome is not None:
             self.white_share = 0.5 if outcome.winner is None else float(outcome.winner)
         else:
@@ -100,24 +113,34 @@ class EvaluationBar(Widget):
             if candidate is None and preview:
                 child = current.children.get(preview)
                 candidate = next(iter(child.candidates), None) if child else None
-            if candidate is None or candidate.score == "?":
-                self.white_share = 0.5
-                return Text("\n").join(
-                    Text("  ", style="on #59616d") for _ in range(max(1, self.size.height))
-                )
-            score = candidate.score
-            if score.startswith("M"):
-                self.white_share = 1.0
-            elif score.startswith("-M"):
-                self.white_share = 0.0
-            else:
-                self.white_share = 1 / (1 + math.exp(-float(score) / 1.5))
+            unavailable = candidate is None or candidate.score == "?"
+            if not self.updating and not unavailable:
+                score = candidate.score
+                if score.startswith("M"):
+                    self.white_share = 1.0
+                elif score.startswith("-M"):
+                    self.white_share = 0.0
+                else:
+                    self.white_share = 1 / (1 + math.exp(-float(score) / 1.5))
+        if self.updating:
+            indicator = self.SPINNER_FRAMES[self.spinner_frame]
+            self.tooltip = "Updating evaluation · previous value retained"
+        elif unavailable:
+            indicator = "?"
+            self.tooltip = "Evaluation unavailable · previous value retained"
+        else:
+            indicator = ""
+            self.tooltip = "Evaluation of the displayed position"
         height = max(1, self.size.height)
         white_rows = round(height * self.white_share)
-        return Text("\n").join(
-            Text("  ", style=f"on {'#f0f0e8' if row < white_rows else '#30343b'}")
-            for row in range(height)
-        )
+        rows = []
+        for row in range(height):
+            white = row < white_rows
+            background = "#f0f0e8" if white else "#30343b"
+            foreground = "#161b22" if white else "#e3b341"
+            symbol = indicator if row == height // 2 else ""
+            rows.append(Text(f"{symbol or ' '} ", style=f"{foreground} on {background}"))
+        return Text("\n").join(rows)
 
 
 class ChessBoard(Widget):
